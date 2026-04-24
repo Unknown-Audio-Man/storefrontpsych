@@ -242,9 +242,13 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="relative aspect-[4/5] lg:aspect-[3/4] bg-gradient-to-tr from-stone-200 to-stone-100 rounded-[2.5rem] flex items-center justify-center shadow-2xl overflow-hidden group">
-               <div className="absolute inset-0 bg-emerald-900/5 group-hover:bg-transparent transition-colors duration-700"></div>
-               <User size={140} strokeWidth={1} className="text-stone-400 group-hover:scale-105 transition-transform duration-700" />
+            <div className="relative aspect-[4/5] lg:aspect-[3/4] bg-stone-100 rounded-[2.5rem] flex items-center justify-center shadow-2xl overflow-hidden group">
+               <img 
+                 src="https://cfir.ca/wp-content/uploads/2023/12/Website-picture-800x914.jpg" 
+                 alt="Lakshmi Mupparthi - Registered Psychotherapist" 
+                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+               />
+               <div className="absolute inset-0 bg-emerald-900/10 group-hover:bg-transparent transition-colors duration-700"></div>
                <div className="absolute bottom-8 left-8 right-8 bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-white/20 transform group-hover:-translate-y-2 transition-transform duration-500">
                  <p className="font-serif italic text-stone-700 text-sm md:text-base leading-relaxed">
                    "Mapping the contours of your experience together to find meaning beneath the anxiety."
