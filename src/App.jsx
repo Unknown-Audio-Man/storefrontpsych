@@ -16,10 +16,13 @@ import {
   Mail,
   Phone,
   HelpCircle,
-  ArrowRight
+  ArrowRight,
+  ExternalLink
 } from 'lucide-react';
 
-const apiKey = ""; // API key is handled by the environment or needs to be provided in production
+// --- Configuration & Constants ---
+const apiKey = ""; // Gemini API key handled by environment
+const WEB3FORMS_ACCESS_KEY = ""; // Get a free key at web3forms.com to enable real emails
 
 const PRACTICE_DETAILS = {
   name: "Lakshmi Mupparthi, M.A., R.P.",
@@ -70,7 +73,7 @@ const SYSTEM_PROMPT = `
 You are the AI Assistant for Lakshmi Mupparthi's Psychotherapy practice. 
 Your goal is to be professional, empathetic, and helpful.
 Practice Info: ${JSON.stringify(PRACTICE_DETAILS)}
-Context: Lakshmi is a therapist at CFIR (Centre for Interpersonal Relationships).
+Context: Lakshmi is a therapist at CFIR.
 Task: Answer questions about the practice, specialties, and help with booking inquiries. 
 Keep responses concise, warm, and professional.
 `;
@@ -79,18 +82,48 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [messages, setMessages] = useState([
-    { role: 'assistant', text: "Hello. I'm Lakshmi's virtual assistant. How can I help you today?" }
-  ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isHeroImageLoaded, setIsHeroImageLoaded] = useState(false);
   const chatEndRef = useRef(null);
+
+  // Persistent Chat State (Saves to localStorage)
+  const [messages, setMessages] = useState(() => {
+    const saved = localStorage.getItem('lakshmi_chat_history');
+    return saved ? JSON.parse(saved) : [
+      { role: 'assistant', text: "Hello. I'm Lakshmi's virtual assistant. How can I help you today?" }
+    ];
+  });
 
   // Booking Form State
   const [bookingForm, setBookingForm] = useState({ name: '', email: '', service: 'individual', message: '' });
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Scroll Animations & Meta Tags
   useEffect(() => {
+    // Inject Meta Tags for SEO
+    document.title = "Lakshmi Mupparthi | Registered Psychotherapist";
+    document.querySelector('meta[name="description"]')?.setAttribute("content", "Integrative, trauma-informed therapy for individuals and couples in Saint Catharines and Ontario.");
+
+    // Scroll Reveal Observer
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.remove('opacity-0', 'translate-y-8');
+          entry.target.classList.add('opacity-100', 'translate-y-0');
+          observer.unobserve(entry.target); // Only animate once
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.scroll-reveal').forEach(el => observer.observe(el));
+    return () => observer.disconnect();
+  }, [activeTab]);
+
+  // Persist chat and auto-scroll
+  useEffect(() => {
+    localStorage.setItem('lakshmi_chat_history', JSON.stringify(messages));
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
@@ -133,18 +166,49 @@ export default function App() {
     }
   };
 
-  const handleBookingSubmit = (e) => {
+  const handleBookingSubmit = async (e) => {
     e.preventDefault();
-    // In a real app, this would send data to a backend or email service.
-    // For now, we simulate a successful submission.
-    setTimeout(() => {
-      setIsSubmitted(true);
-      setBookingForm({ name: '', email: '', service: 'individual', message: '' });
-    }, 800);
+    setIsSubmitting(true);
+
+    if (WEB3FORMS_ACCESS_KEY) {
+      // Real submission via Web3Forms
+      try {
+        const formData = new FormData();
+        formData.append("access_key", WEB3FORMS_ACCESS_KEY);
+        formData.append("name", bookingForm.name);
+        formData.append("email", bookingForm.email);
+        formData.append("service", bookingForm.service);
+        formData.append("message", bookingForm.message);
+
+        const res = await fetch("https://api.web3forms.com/submit", {
+          method: "POST",
+          body: formData
+        });
+        
+        if (res.ok) setIsSubmitted(true);
+      } catch (err) {
+        console.error("Form submission failed:", err);
+      }
+    } else {
+      // Simulated submission for testing
+      setTimeout(() => {
+        setIsSubmitted(true);
+        setBookingForm({ name: '', email: '', service: 'individual', message: '' });
+      }, 1000);
+    }
+    setIsSubmitting(false);
   };
 
   return (
-    <div className="min-h-screen bg-[#fdfcfb] font-sans text-stone-800 selection:bg-emerald-100 selection:text-emerald-900">
+    <div className="min-h-screen bg-[#fcfbf9] text-stone-800 selection:bg-emerald-100 selection:text-emerald-900 custom-font-wrapper">
+      
+      {/* Inject Google Fonts dynamically to avoid relying on external CSS files */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
+        .custom-font-wrapper { font-family: 'Inter', sans-serif; }
+        .font-serif { font-family: 'Playfair Display', serif; }
+      `}} />
+
       {/* Navigation Bar */}
       <nav className="fixed top-0 w-full bg-white/90 backdrop-blur-md z-40 border-b border-stone-100 shadow-sm transition-all">
         <div className="max-w-6xl mx-auto px-6 h-20 flex items-center justify-between">
@@ -161,14 +225,14 @@ export default function App() {
             {['home', 'about', 'services', 'faq'].map(tab => (
               <button 
                 key={tab}
-                onClick={() => setActiveTab(tab)} 
+                onClick={() => { setActiveTab(tab); window.scrollTo(0,0); }} 
                 className={`text-sm tracking-wide capitalize transition-colors hover:text-emerald-700 ${activeTab === tab ? 'text-emerald-900 font-semibold border-b-2 border-emerald-800 pb-1' : 'text-stone-500'}`}
               >
                 {tab === 'faq' ? 'FAQ' : tab}
               </button>
             ))}
             <button 
-              onClick={() => setActiveTab('booking')} 
+              onClick={() => { setActiveTab('booking'); window.scrollTo(0,0); }} 
               className="ml-2 bg-emerald-900 text-white px-7 py-2.5 rounded-full text-sm font-medium hover:bg-emerald-800 shadow-md hover:shadow-lg transition-all hover:-translate-y-0.5 active:scale-95"
             >
               Book Session
@@ -195,14 +259,14 @@ export default function App() {
               <button 
                 key={tab}
                 className="text-4xl font-serif text-left capitalize text-stone-800 hover:text-emerald-800 transition-colors" 
-                onClick={() => {setActiveTab(tab); setIsMenuOpen(false)}}
+                onClick={() => {setActiveTab(tab); setIsMenuOpen(false); window.scrollTo(0,0);}}
               >
                 {tab === 'faq' ? 'FAQ' : tab}
               </button>
             ))}
             <button 
               className="text-4xl font-serif text-left text-emerald-800" 
-              onClick={() => {setActiveTab('booking'); setIsMenuOpen(false)}}
+              onClick={() => {setActiveTab('booking'); setIsMenuOpen(false); window.scrollTo(0,0);}}
             >
               Book Session
             </button>
@@ -215,16 +279,16 @@ export default function App() {
         
         {/* HOME SECTION */}
         {activeTab === 'home' && (
-          <section className="grid lg:grid-cols-2 gap-16 items-center animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className="space-y-8">
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-full uppercase tracking-widest border border-emerald-100">
+          <section className="grid lg:grid-cols-2 gap-16 items-center">
+            <div className="space-y-8 scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-full uppercase tracking-widest border border-emerald-100 shadow-sm">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 Accepting New Clients
               </div>
-              <h1 className="text-5xl md:text-6xl lg:text-7xl font-serif leading-[1.1] text-stone-900">
-                Resilience is found in the <span className="italic text-emerald-800">unspoken.</span>
+              <h1 className="text-5xl md:text-6xl lg:text-7xl font-serif leading-[1.15] text-stone-900 tracking-tight">
+                Resilience is found in the <span className="italic text-emerald-800 font-medium">unspoken.</span>
               </h1>
-              <p className="text-xl text-stone-600 leading-relaxed max-w-lg">
+              <p className="text-xl text-stone-600 leading-relaxed max-w-lg font-light">
                 Integrative, trauma-informed therapy for individuals and couples in Saint Catharines and throughout Ontario.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 pt-4">
@@ -242,15 +306,23 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="relative aspect-[4/5] lg:aspect-[3/4] bg-stone-100 rounded-[2.5rem] flex items-center justify-center shadow-2xl overflow-hidden group">
+            
+            <div className="relative aspect-[4/5] lg:aspect-[3/4] bg-stone-100 rounded-[2.5rem] flex items-center justify-center shadow-2xl overflow-hidden group scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out delay-150">
+               {/* Skeleton Loader */}
+               {!isHeroImageLoaded && (
+                 <div className="absolute inset-0 bg-stone-200 animate-pulse flex items-center justify-center">
+                   <User size={80} className="text-stone-300 opacity-50" />
+                 </div>
+               )}
                <img 
                  src="https://cfir.ca/wp-content/uploads/2023/12/Website-picture-800x914.jpg" 
                  alt="Lakshmi Mupparthi - Registered Psychotherapist" 
-                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                 onLoad={() => setIsHeroImageLoaded(true)}
+                 className={`absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-1000 ${isHeroImageLoaded ? 'opacity-100' : 'opacity-0'}`}
                />
                <div className="absolute inset-0 bg-emerald-900/10 group-hover:bg-transparent transition-colors duration-700"></div>
-               <div className="absolute bottom-8 left-8 right-8 bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-lg border border-white/20 transform group-hover:-translate-y-2 transition-transform duration-500">
-                 <p className="font-serif italic text-stone-700 text-sm md:text-base leading-relaxed">
+               <div className="absolute bottom-8 left-8 right-8 bg-white/95 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-white/40 transform group-hover:-translate-y-2 transition-transform duration-500">
+                 <p className="font-serif italic text-stone-800 text-sm md:text-base leading-relaxed">
                    "Mapping the contours of your experience together to find meaning beneath the anxiety."
                  </p>
                </div>
@@ -260,12 +332,12 @@ export default function App() {
 
         {/* ABOUT SECTION */}
         {activeTab === 'about' && (
-          <div className="max-w-3xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className="text-center space-y-4 mb-12">
+          <div className="max-w-3xl mx-auto space-y-10">
+            <div className="text-center space-y-4 mb-12 scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out">
               <h2 className="text-4xl md:text-5xl font-serif text-stone-900">About Lakshmi</h2>
               <div className="w-16 h-1 bg-emerald-800 mx-auto rounded-full"></div>
             </div>
-            <div className="prose prose-stone lg:prose-lg text-stone-600 leading-relaxed space-y-6 mx-auto bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-stone-100">
+            <div className="prose prose-stone lg:prose-lg text-stone-600 leading-relaxed space-y-6 mx-auto bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-stone-100 scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out delay-100">
               <p className="text-xl font-serif italic text-stone-800 leading-normal border-l-4 border-emerald-800 pl-6">
                 My work is grounded in empathy, cultural humility, and clinical excellence.
               </p>
@@ -290,10 +362,10 @@ export default function App() {
 
         {/* SERVICES SECTION */}
         {activeTab === 'services' && (
-          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className="text-center space-y-4 mb-16">
+          <div className="space-y-12">
+            <div className="text-center space-y-4 mb-16 scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out">
               <h2 className="text-4xl md:text-5xl font-serif text-stone-900">Therapeutic Specialties</h2>
-              <p className="text-stone-500 max-w-2xl mx-auto">Evidence-based, integrative care tailored to your unique lived experience.</p>
+              <p className="text-stone-500 max-w-2xl mx-auto text-lg font-light">Evidence-based, integrative care tailored to your unique lived experience.</p>
               <div className="w-16 h-1 bg-emerald-800 mx-auto rounded-full mt-6"></div>
             </div>
             
@@ -306,8 +378,8 @@ export default function App() {
                 { title: "Cultural Identity", icon: <Globe className="text-emerald-700" size={24} />, desc: "Navigating the intersection of tradition, family expectations, and autonomy." },
                 { title: "Couples Therapy", icon: <MessageSquare className="text-emerald-700" size={24} />, desc: "Improving communication and rebuilding trust using Emotion-Focused techniques." }
               ].map((s, i) => (
-                <div key={i} className="p-8 bg-white border border-stone-100 rounded-3xl shadow-sm hover:shadow-xl hover:border-emerald-100 transition-all group">
-                  <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-sm">
+                <div key={i} className="p-8 bg-white border border-stone-100 rounded-3xl shadow-sm hover:shadow-xl hover:border-emerald-200 transition-all group scroll-reveal opacity-0 translate-y-8 duration-700 ease-out" style={{ transitionDelay: `${i * 100}ms` }}>
+                  <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-sm">
                     {s.icon}
                   </div>
                   <h3 className="text-xl font-serif text-stone-900 mb-3">{s.title}</h3>
@@ -316,10 +388,10 @@ export default function App() {
               ))}
             </div>
             
-            <div className="mt-16 bg-emerald-900 rounded-[2.5rem] p-12 text-center text-white shadow-xl relative overflow-hidden">
+            <div className="mt-16 bg-emerald-900 rounded-[2.5rem] p-12 text-center text-white shadow-xl relative overflow-hidden scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out delay-200">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-emerald-800 via-transparent to-transparent opacity-50"></div>
               <h3 className="text-3xl font-serif mb-6 relative z-10">My Approach</h3>
-              <p className="max-w-3xl mx-auto text-emerald-50 text-lg leading-relaxed relative z-10">
+              <p className="max-w-3xl mx-auto text-emerald-50 text-lg leading-relaxed relative z-10 font-light">
                 {PRACTICE_DETAILS.approach}. I don't believe in a one-size-fits-all model. I draw from these different modalities to create a framework that fits your specific needs, pace, and comfort level.
               </p>
             </div>
@@ -328,25 +400,25 @@ export default function App() {
 
         {/* FAQ SECTION */}
         {activeTab === 'faq' && (
-          <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
-             <div className="text-center space-y-4 mb-12">
+          <div className="max-w-4xl mx-auto space-y-12">
+             <div className="text-center space-y-4 mb-12 scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out">
               <h2 className="text-4xl md:text-5xl font-serif text-stone-900">Frequently Asked Questions</h2>
               <div className="w-16 h-1 bg-emerald-800 mx-auto rounded-full mt-6"></div>
             </div>
 
             <div className="grid gap-6">
               {FAQS.map((faq, index) => (
-                <div key={index} className="bg-white p-8 rounded-3xl border border-stone-100 shadow-sm hover:shadow-md transition-shadow">
+                <div key={index} className="bg-white p-8 rounded-3xl border border-stone-100 shadow-sm hover:shadow-md transition-shadow scroll-reveal opacity-0 translate-y-8 duration-700 ease-out" style={{ transitionDelay: `${index * 100}ms` }}>
                   <h3 className="text-xl font-serif text-stone-900 mb-4 flex items-start gap-3">
                     <HelpCircle className="text-emerald-700 shrink-0 mt-1" size={20} />
                     {faq.q}
                   </h3>
-                  <p className="text-stone-600 leading-relaxed pl-8">{faq.a}</p>
+                  <p className="text-stone-600 leading-relaxed pl-8 font-light">{faq.a}</p>
                 </div>
               ))}
             </div>
 
-            <div className="text-center pt-8 border-t border-stone-200">
+            <div className="text-center pt-8 border-t border-stone-200 scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out">
               <p className="text-stone-500 mb-4">Still have questions?</p>
               <button 
                 onClick={() => setIsChatOpen(true)}
@@ -360,13 +432,13 @@ export default function App() {
 
         {/* BOOKING SECTION */}
         {activeTab === 'booking' && (
-          <div className="max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className="text-center space-y-4 mb-12">
+          <div className="max-w-6xl mx-auto">
+            <div className="text-center space-y-4 mb-12 scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out">
               <h2 className="text-4xl md:text-5xl font-serif text-stone-900">Let's Connect</h2>
-              <p className="text-stone-500 max-w-2xl mx-auto">Choose the method that feels most comfortable for you to get started.</p>
+              <p className="text-stone-500 max-w-2xl mx-auto text-lg font-light">Choose the method that feels most comfortable for you to get started.</p>
             </div>
 
-            <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden flex flex-col lg:flex-row border border-stone-100">
+            <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden flex flex-col lg:flex-row border border-stone-100 scroll-reveal opacity-0 translate-y-8 transition-all duration-700 ease-out delay-100">
               
               {/* Left Column - Contact Details & AI Assistant Prompt */}
               <div className="lg:w-5/12 bg-emerald-900 p-10 lg:p-14 text-white flex flex-col justify-between relative overflow-hidden">
@@ -374,40 +446,40 @@ export default function App() {
                 <div className="relative z-10 space-y-10">
                   <div>
                     <h3 className="text-3xl font-serif mb-4">Contact Information</h3>
-                    <p className="text-emerald-100/90 leading-relaxed">
+                    <p className="text-emerald-50 leading-relaxed font-light">
                       Reach out directly, or use the form to request a consultation. I aim to respond to all inquiries within 48 hours.
                     </p>
                   </div>
                   
                   <div className="space-y-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-emerald-800/80 flex items-center justify-center shrink-0 border border-emerald-700"><Mail size={20} className="text-emerald-100" /></div>
+                    <div className="flex items-center gap-4 group">
+                      <div className="w-12 h-12 rounded-full bg-emerald-800/80 flex items-center justify-center shrink-0 border border-emerald-700 group-hover:bg-emerald-700 transition-colors"><Mail size={20} className="text-emerald-100" /></div>
                       <div>
-                        <p className="font-bold text-sm tracking-wider uppercase text-emerald-200/80">Email</p>
-                        <p className="text-white font-medium">{PRACTICE_DETAILS.email}</p>
+                        <p className="font-bold text-xs tracking-widest uppercase text-emerald-200/80 mb-0.5">Email</p>
+                        <a href={`mailto:${PRACTICE_DETAILS.email}`} className="text-white font-medium hover:underline">{PRACTICE_DETAILS.email}</a>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-emerald-800/80 flex items-center justify-center shrink-0 border border-emerald-700"><Phone size={20} className="text-emerald-100" /></div>
+                    <div className="flex items-center gap-4 group">
+                      <div className="w-12 h-12 rounded-full bg-emerald-800/80 flex items-center justify-center shrink-0 border border-emerald-700 group-hover:bg-emerald-700 transition-colors"><Phone size={20} className="text-emerald-100" /></div>
                       <div>
-                        <p className="font-bold text-sm tracking-wider uppercase text-emerald-200/80">Phone</p>
-                        <p className="text-white font-medium">{PRACTICE_DETAILS.phone}</p>
+                        <p className="font-bold text-xs tracking-widest uppercase text-emerald-200/80 mb-0.5">Phone</p>
+                        <a href={`tel:${PRACTICE_DETAILS.phone}`} className="text-white font-medium hover:underline">{PRACTICE_DETAILS.phone}</a>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-emerald-800/80 flex items-center justify-center shrink-0 border border-emerald-700"><MapPin size={20} className="text-emerald-100" /></div>
+                    <div className="flex items-center gap-4 group">
+                      <div className="w-12 h-12 rounded-full bg-emerald-800/80 flex items-center justify-center shrink-0 border border-emerald-700 group-hover:bg-emerald-700 transition-colors"><MapPin size={20} className="text-emerald-100" /></div>
                       <div>
-                        <p className="font-bold text-sm tracking-wider uppercase text-emerald-200/80">Location</p>
+                        <p className="font-bold text-xs tracking-widest uppercase text-emerald-200/80 mb-0.5">Location</p>
                         <p className="text-white font-medium">CFIR - Saint Catharines, ON</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="pt-8 border-t border-emerald-800/50">
-                    <p className="mb-4 text-emerald-50">Prefer to chat before booking?</p>
+                    <p className="mb-4 text-emerald-50 font-light">Prefer to chat before booking?</p>
                     <button 
                       onClick={() => setIsChatOpen(true)} 
-                      className="w-full bg-white text-emerald-950 py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-emerald-50 hover:shadow-xl transition-all font-bold"
+                      className="w-full bg-white text-emerald-950 py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-emerald-50 hover:shadow-xl transition-all font-semibold"
                     >
                       <MessageSquare size={20} /> Use Virtual Assistant
                     </button>
@@ -416,14 +488,14 @@ export default function App() {
               </div>
               
               {/* Right Column - Booking Form */}
-              <div className="lg:w-7/12 p-10 lg:p-14 bg-stone-50/50">
+              <div className="lg:w-7/12 p-10 lg:p-14 bg-stone-50/50 relative">
                 {isSubmitted ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in duration-500">
+                  <div className="h-full flex flex-col items-center justify-center text-center space-y-6 animate-in zoom-in duration-500 py-12">
                     <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700">
                       <CheckCircle size={48} />
                     </div>
                     <h3 className="text-3xl font-serif text-stone-900">Request Sent</h3>
-                    <p className="text-stone-600 max-w-sm">
+                    <p className="text-stone-600 max-w-sm font-light">
                       Thank you for reaching out. I have received your request and will get back to you via email shortly.
                     </p>
                     <button 
@@ -435,29 +507,39 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-8">
-                    <div className="space-y-2">
-                      <h3 className="text-2xl font-serif text-stone-900">Request a Consultation</h3>
-                      <p className="text-stone-500 text-sm">Fill out the details below to request your free 15-minute introductory call.</p>
+                    <div className="space-y-2 flex justify-between items-start">
+                      <div>
+                        <h3 className="text-2xl font-serif text-stone-900">Request a Consultation</h3>
+                        <p className="text-stone-500 text-sm">Fill out the details below to request your free 15-minute call.</p>
+                      </div>
+                      {/* Link to external portal if they use one */}
+                      <a href="#" className="hidden sm:flex text-xs font-bold items-center gap-1 text-emerald-700 hover:text-emerald-900 uppercase tracking-widest bg-emerald-100/50 px-3 py-1.5 rounded-lg transition-colors">
+                        CFIR Portal <ExternalLink size={12} />
+                      </a>
                     </div>
                     
                     <form onSubmit={handleBookingSubmit} className="space-y-5">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div className="space-y-1.5">
-                          <label className="text-sm font-bold text-stone-700 ml-1">Full Name</label>
+                          <label htmlFor="fullName" className="text-sm font-bold text-stone-700 ml-1 block">Full Name</label>
                           <input 
+                            id="fullName"
+                            name="name"
                             required
                             type="text" 
-                            className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all"
+                            className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all font-light"
                             value={bookingForm.name}
                             onChange={(e) => setBookingForm({...bookingForm, name: e.target.value})}
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-sm font-bold text-stone-700 ml-1">Email Address</label>
+                          <label htmlFor="emailAddress" className="text-sm font-bold text-stone-700 ml-1 block">Email Address</label>
                           <input 
+                            id="emailAddress"
+                            name="email"
                             required
                             type="email" 
-                            className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all"
+                            className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all font-light"
                             value={bookingForm.email}
                             onChange={(e) => setBookingForm({...bookingForm, email: e.target.value})}
                           />
@@ -465,9 +547,11 @@ export default function App() {
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-sm font-bold text-stone-700 ml-1">Service Interest</label>
+                        <label htmlFor="serviceInterest" className="text-sm font-bold text-stone-700 ml-1 block">Service Interest</label>
                         <select 
-                          className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all"
+                          id="serviceInterest"
+                          name="service"
+                          className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all font-light"
                           value={bookingForm.service}
                           onChange={(e) => setBookingForm({...bookingForm, service: e.target.value})}
                         >
@@ -479,11 +563,13 @@ export default function App() {
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-sm font-bold text-stone-700 ml-1">Brief Message (Optional)</label>
+                        <label htmlFor="briefMessage" className="text-sm font-bold text-stone-700 ml-1 block">Brief Message (Optional)</label>
                         <textarea 
+                          id="briefMessage"
+                          name="message"
                           rows="4"
                           placeholder="Is there anything specific you'd like to address?"
-                          className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all resize-none"
+                          className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all resize-none font-light"
                           value={bookingForm.message}
                           onChange={(e) => setBookingForm({...bookingForm, message: e.target.value})}
                         ></textarea>
@@ -491,13 +577,18 @@ export default function App() {
 
                       <button 
                         type="submit" 
-                        className="w-full bg-stone-900 text-white py-4 rounded-xl font-medium hover:bg-stone-800 transition-all shadow-md hover:shadow-lg mt-2"
+                        disabled={isSubmitting}
+                        className="w-full bg-stone-900 text-white py-4 rounded-xl font-medium hover:bg-stone-800 transition-all shadow-md hover:shadow-lg mt-2 flex items-center justify-center gap-2 disabled:opacity-70"
                       >
-                        Submit Request
+                        {isSubmitting ? (
+                          <><span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> Sending...</>
+                        ) : (
+                          "Submit Request"
+                        )}
                       </button>
                     </form>
-                    <p className="text-center text-xs text-stone-400">
-                      Your information is kept strictly confidential.
+                    <p className="text-center text-xs text-stone-400 flex justify-center items-center gap-1.5">
+                       <Shield size={12} /> Your information is securely transmitted and kept strictly confidential.
                     </p>
                   </div>
                 )}
@@ -514,7 +605,7 @@ export default function App() {
           {/* Header */}
           <div className="bg-emerald-900 p-5 text-white flex justify-between items-center shadow-md relative z-10">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm">
+              <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-sm shadow-inner">
                 <MessageSquare size={20} className="text-emerald-50" />
               </div>
               <div>
@@ -524,7 +615,7 @@ export default function App() {
                 </span>
               </div>
             </div>
-            <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+            <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors" aria-label="Close chat"><X size={20} /></button>
           </div>
           
           {/* Chat History */}
@@ -533,24 +624,24 @@ export default function App() {
               <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                 <div className={`max-w-[85%] p-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${
                   m.role === 'user' 
-                  ? 'bg-stone-800 text-white rounded-br-sm' 
-                  : 'bg-white border border-stone-200 text-stone-800 rounded-bl-sm'
+                  ? 'bg-stone-800 text-white rounded-br-sm font-light' 
+                  : 'bg-white border border-stone-200 text-stone-800 rounded-bl-sm font-light'
                 }`}>
                   {m.text}
                 </div>
               </div>
             ))}
             
-            {/* Quick Replies (Only show after first assistant message and if not typing) */}
+            {/* Quick Replies */}
             {messages.length === 1 && !isTyping && (
               <div className="flex flex-col gap-2 pt-2 animate-in fade-in duration-700">
-                <p className="text-xs text-stone-400 ml-1 mb-1 font-medium">SUGGESTED QUESTIONS</p>
+                <p className="text-[10px] text-stone-400 ml-1 mb-1 font-bold uppercase tracking-widest">Suggested Questions</p>
                 <div className="flex flex-wrap gap-2">
                   {QUICK_REPLIES.map((reply, index) => (
                     <button 
                       key={index}
                       onClick={() => handleSendMessage(reply)}
-                      className="text-left text-sm bg-white border border-emerald-200 text-emerald-800 px-4 py-2.5 rounded-full hover:bg-emerald-50 hover:border-emerald-300 transition-all shadow-sm"
+                      className="text-left text-sm bg-white border border-emerald-200 text-emerald-800 px-4 py-2.5 rounded-full hover:bg-emerald-50 hover:border-emerald-300 transition-all shadow-sm font-medium"
                     >
                       {reply}
                     </button>
@@ -571,12 +662,13 @@ export default function App() {
             <div ref={chatEndRef} />
           </div>
           
-          {/* Input Area */}
+          {/* Chat Input Area */}
           <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(input); }} className="p-4 bg-white border-t border-stone-100 flex gap-3">
             <input 
               type="text" 
               placeholder="Type your message..." 
-              className="flex-1 text-base bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all" 
+              aria-label="Type your message"
+              className="flex-1 text-base bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 transition-all font-light" 
               value={input} 
               onChange={(e) => setInput(e.target.value)}
               disabled={isTyping}
@@ -584,6 +676,7 @@ export default function App() {
             <button 
               type="submit" 
               disabled={isTyping || !input.trim()}
+              aria-label="Send message"
               className="bg-emerald-900 text-white p-3 rounded-xl hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center justify-center"
             >
               <Send size={20}/>
@@ -596,7 +689,7 @@ export default function App() {
       {!isChatOpen && (
         <button 
           onClick={() => setIsChatOpen(true)} 
-          className="fixed bottom-6 right-6 md:bottom-8 md:right-8 bg-stone-900 text-white p-4 md:p-5 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all z-40 group flex items-center justify-center border-4 border-white"
+          className="fixed bottom-6 right-6 md:bottom-8 md:right-8 bg-stone-900 text-white p-4 md:p-5 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all z-40 group flex items-center justify-center border-4 border-white/50"
           aria-label="Open Chat Assistant"
         >
           <MessageSquare size={28} className="group-hover:animate-pulse" />
@@ -611,24 +704,24 @@ export default function App() {
               <div className="w-10 h-10 bg-emerald-900/50 rounded-full flex items-center justify-center text-white font-serif text-sm border border-emerald-800/50">LM</div>
               <span className="text-stone-200 font-serif text-xl">Lakshmi Mupparthi</span>
             </div>
-            <p className="max-w-sm leading-relaxed text-stone-500">
+            <p className="max-w-sm leading-relaxed text-stone-500 font-light">
               Dedicated to deepening self-awareness and healing relational patterns through integrative psychotherapy in Ontario.
             </p>
           </div>
           <div>
             <h4 className="text-stone-200 font-bold uppercase tracking-widest mb-6 text-xs">Quick Links</h4>
-            <ul className="space-y-3">
-              <li><button onClick={() => setActiveTab('home')} className="hover:text-emerald-400 transition-colors">Home</button></li>
-              <li><button onClick={() => setActiveTab('about')} className="hover:text-emerald-400 transition-colors">About Lakshmi</button></li>
-              <li><button onClick={() => setActiveTab('services')} className="hover:text-emerald-400 transition-colors">Specialties</button></li>
-              <li><button onClick={() => setActiveTab('faq')} className="hover:text-emerald-400 transition-colors">FAQ</button></li>
+            <ul className="space-y-3 font-light">
+              <li><button onClick={() => {setActiveTab('home'); window.scrollTo(0,0);}} className="hover:text-emerald-400 transition-colors">Home</button></li>
+              <li><button onClick={() => {setActiveTab('about'); window.scrollTo(0,0);}} className="hover:text-emerald-400 transition-colors">About Lakshmi</button></li>
+              <li><button onClick={() => {setActiveTab('services'); window.scrollTo(0,0);}} className="hover:text-emerald-400 transition-colors">Specialties</button></li>
+              <li><button onClick={() => {setActiveTab('faq'); window.scrollTo(0,0);}} className="hover:text-emerald-400 transition-colors">FAQ</button></li>
             </ul>
           </div>
           <div>
             <h4 className="text-stone-200 font-bold uppercase tracking-widest mb-6 text-xs">Contact</h4>
-            <ul className="space-y-3">
-              <li className="flex items-center gap-2"><Mail size={14} /> {PRACTICE_DETAILS.email}</li>
-              <li className="flex items-center gap-2"><Phone size={14} /> {PRACTICE_DETAILS.phone}</li>
+            <ul className="space-y-3 font-light">
+              <li className="flex items-center gap-2"><Mail size={14} /> <a href={`mailto:${PRACTICE_DETAILS.email}`} className="hover:text-emerald-400 transition-colors">{PRACTICE_DETAILS.email}</a></li>
+              <li className="flex items-center gap-2"><Phone size={14} /> <a href={`tel:${PRACTICE_DETAILS.phone}`} className="hover:text-emerald-400 transition-colors">{PRACTICE_DETAILS.phone}</a></li>
               <li className="flex items-center gap-2"><MapPin size={14} /> Saint Catharines, ON</li>
             </ul>
           </div>
