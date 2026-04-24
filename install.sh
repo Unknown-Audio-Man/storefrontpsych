@@ -2,7 +2,8 @@
 
 echo "🚀 Step 1: Installing dependencies..."
 npm install lucide-react
-npm install -D tailwindcss postcss autoprefixer gh-pages
+# Pinned tailwindcss to version 3 to ensure compatibility with our postcss config
+npm install -D tailwindcss@3 postcss autoprefixer gh-pages
 
 echo "🛠️ Step 2: Creating configuration files manually..."
 # Force create tailwind.config.js to bypass the npx error
@@ -60,7 +61,15 @@ npm pkg set scripts.deploy="gh-pages -d dist"
 
 echo "💾 Step 4: Initializing Git & Committing to GitHub..."
 git init
-git remote add origin https://github.com/Unknown-Audio-Man/storefrontpsych.git
+
+# Configure local Git user to prevent 'Author identity unknown' error
+git config user.name "Storefront Deployer"
+git config user.email "deploy@storefrontpsych.local"
+
+# Remove existing origin if it exists to avoid 'remote already exists' errors, then add it
+git remote remove origin 2>/dev/null || true
+git remote add origin git@github.com:Unknown-Audio-Man/storefrontpsych.git
+
 git add .
 git commit -m "Automated configuration setup and deployment"
 git branch -M main
