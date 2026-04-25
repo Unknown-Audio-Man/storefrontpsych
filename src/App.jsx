@@ -18,8 +18,7 @@ import {
 } from 'lucide-react';
 
 // --- FIREBASE INITIALIZATION ---
-// Using environment variables for Canvas preview, falling back to user config for local deployment
-const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+const userFirebaseConfig = {
   apiKey: "AIzaSyAARehJ7GqdaZJFOfw1a-GJmVBf3LscN34",
   authDomain: "storefrontpsych.firebaseapp.com",
   projectId: "storefrontpsych",
@@ -29,10 +28,23 @@ const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(
   measurementId: "G-QE551X53EM"
 };
 
+// Safely merge environment config with user config to ensure apiKey is never lost
+const firebaseConfig = (() => {
+  if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+    try {
+      const envConfig = JSON.parse(__firebase_config);
+      return { ...userFirebaseConfig, ...envConfig };
+    } catch (e) {
+      return userFirebaseConfig;
+    }
+  }
+  return userFirebaseConfig;
+})();
+
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'lakshmi-psych-practice';
 
-// Initialize Firebase services outside the component to prevent re-initialization
-const app = initializeApp(envFirebaseConfig);
+// Initialize Firebase services outside the component
+const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
@@ -101,7 +113,6 @@ export default function App() {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // Always try custom token from environment first, then fallback to anonymous
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
         } else {
@@ -143,7 +154,6 @@ export default function App() {
     const unsubscribe = onSnapshot(q, 
       (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // Sort in memory per mandatory rules (No complex queries)
         setAllAppointments(data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)));
       }, 
       (error) => {
@@ -160,7 +170,7 @@ export default function App() {
   const handleBooking = async (e) => {
     e.preventDefault();
     if (!user) { 
-      alert("Please wait while we secure your connection..."); 
+      alert("Establishing secure connection... please try again in a second."); 
       return; 
     }
     if (!selectedSlot) { alert("Please select a time slot."); return; }
@@ -177,7 +187,6 @@ export default function App() {
     };
 
     try {
-      // Use standard path per Mandatory Rule 1
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData);
       
       if (GOOGLE_SHEET_WEBHOOK_URL) {
@@ -191,7 +200,7 @@ export default function App() {
       setBookingResult(refCode);
     } catch (err) {
       console.error(err);
-      alert("Error booking slot. If you are using your own Firebase project, ensure 'Authentication' is enabled and 'Firestore' is in 'Test Mode'.");
+      alert("Error booking slot. Please ensure your Firebase Firestore is in 'Test Mode' and Authentication is enabled.");
     } finally {
       setIsLoading(false);
     }
@@ -201,7 +210,6 @@ export default function App() {
     e.preventDefault();
     if (!user) return;
     setIsLoading(true);
-    // Simple query per mandatory rules
     const q = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
     try {
       const snap = await getDocs(q);
@@ -211,6 +219,8 @@ export default function App() {
       
       if (found) setTrackedAppointment(found);
       else alert("No appointment found. Please check your Email and Reference Code.");
+    } catch (err) {
+      console.error(err);
     } finally { setIsLoading(false); }
   };
 
@@ -278,7 +288,7 @@ export default function App() {
         {authError && (
           <div className="mb-8 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100 text-sm font-medium flex items-center gap-3">
             <Shield size={18} />
-            Firebase Error: {authError}. Please ensure "Authentication" is enabled in your Firebase Console.
+            Firebase Status: {authError}. (Ensure 'Anonymous' is enabled in Firebase Console &gt; Auth &gt; Sign-in method).
           </div>
         )}
 
