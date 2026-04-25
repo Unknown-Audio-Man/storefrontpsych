@@ -4,7 +4,12 @@ import {
   getFirestore, collection, addDoc, query, where, getDocs, 
   updateDoc, doc, onSnapshot, serverTimestamp 
 } from 'firebase/firestore';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  signInWithCustomToken, 
+  onAuthStateChanged 
+} from 'firebase/auth';
 import { 
   Calendar as CalendarIcon, MessageSquare, User, Clock, CheckCircle, 
   ChevronRight, Menu, X, Globe, Heart, Shield, Send, 
@@ -12,24 +17,28 @@ import {
   Lock, Search, RefreshCw, Clipboard, ChevronLeft, Award
 } from 'lucide-react';
 
-// --- CONFIGURATION ---
-// Paste your Firebase config here from the Firebase Console
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+// --- FIREBASE INITIALIZATION ---
+// Using environment variables for Canvas preview, falling back to user config for local deployment
+const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+  apiKey: "AIzaSyAARehJ7GqdaZJFOfw1a-GJmVBf3LscN34",
+  authDomain: "storefrontpsych.firebaseapp.com",
+  projectId: "storefrontpsych",
+  storageBucket: "storefrontpsych.firebasestorage.app",
+  messagingSenderId: "782038460241",
+  appId: "1:782038460241:web:a7bc3aa81ccf370d029570",
+  measurementId: "G-QE551X53EM"
 };
 
-const GOOGLE_SHEET_WEBHOOK_URL = ""; // Paste your Google Apps Script Web App URL here
-const GEMINI_API_KEY = ""; 
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'lakshmi-psych-practice';
 
-const app = firebaseConfig.apiKey !== "YOUR_API_KEY" ? initializeApp(firebaseConfig) : null;
-const db = app ? getFirestore(app) : null;
-const auth = app ? getAuth(app) : null;
-const appId = "lakshmi-psych-practice";
+// Initialize Firebase services outside the component to prevent re-initialization
+const app = initializeApp(envFirebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// Configuration for other services
+const GOOGLE_SHEET_WEBHOOK_URL = ""; 
+const GEMINI_API_KEY = ""; 
 
 const PRACTICE_DETAILS = {
   name: "Lakshmi Mupparthi, M.A., R.P.",
@@ -64,6 +73,7 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [user, setUser] = useState(null);
+  const [authError, setAuthError] = useState(null);
   
   // AI Chat State
   const [messages, setMessages] = useState([{ role: 'assistant', text: "Hello. I'm Lakshmi's virtual assistant. I can help you find an available slot or answer questions about the practice." }]);
@@ -87,39 +97,61 @@ export default function App() {
   const [allAppointments, setAllAppointments] = useState([]);
   const SECRET_ADMIN_CODE = "Lakshmi2024";
 
-  // Initialize Auth
+  // --- MANDATORY AUTH PATTERN ---
   useEffect(() => {
-    if (!auth) return;
-    signInAnonymously(auth).catch(console.error);
+    const initAuth = async () => {
+      try {
+        // Always try custom token from environment first, then fallback to anonymous
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth initialization failed:", err);
+        setAuthError(err.message);
+      }
+    };
+    initAuth();
     const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
-  // Fetch booked slots for the selected date
+  // Fetch booked slots for the selected date - Guarded by User
   useEffect(() => {
-    if (!db || !selectedDate) return;
+    if (!user || !selectedDate) return;
     const fetchSlots = async () => {
-      const q = query(
-        collection(db, 'artifacts', appId, 'public', 'data', 'appointments'),
-        where("date", "==", selectedDate)
-      );
-      const querySnapshot = await getDocs(q);
-      const booked = querySnapshot.docs.map(doc => doc.data().slot);
-      setBookedSlots(booked);
+      try {
+        const q = query(
+          collection(db, 'artifacts', appId, 'public', 'data', 'appointments'),
+          where("date", "==", selectedDate)
+        );
+        const querySnapshot = await getDocs(q);
+        const booked = querySnapshot.docs.map(doc => doc.data().slot);
+        setBookedSlots(booked);
+      } catch (err) {
+        console.error("Error fetching slots:", err);
+      }
     };
     fetchSlots();
-  }, [selectedDate, bookingResult]);
+  }, [user, selectedDate, bookingResult]);
 
-  // Admin Real-time Listener
+  // Admin Real-time Listener - Guarded by User and Admin state
   useEffect(() => {
-    if (!isAdmin || !db) return;
+    if (!isAdmin || !user) return;
     const q = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAllAppointments(data.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds));
-    });
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Sort in memory per mandatory rules (No complex queries)
+        setAllAppointments(data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)));
+      }, 
+      (error) => {
+        console.error("Admin listener error:", error);
+      }
+    );
     return () => unsubscribe();
-  }, [isAdmin]);
+  }, [isAdmin, user]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -127,7 +159,10 @@ export default function App() {
 
   const handleBooking = async (e) => {
     e.preventDefault();
-    if (!db) { alert("Firebase is not configured yet. Please add your credentials to App.jsx."); return; }
+    if (!user) { 
+      alert("Please wait while we secure your connection..."); 
+      return; 
+    }
     if (!selectedSlot) { alert("Please select a time slot."); return; }
     setIsLoading(true);
     
@@ -142,6 +177,7 @@ export default function App() {
     };
 
     try {
+      // Use standard path per Mandatory Rule 1
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData);
       
       if (GOOGLE_SHEET_WEBHOOK_URL) {
@@ -154,7 +190,8 @@ export default function App() {
 
       setBookingResult(refCode);
     } catch (err) {
-      alert("Error booking slot. Please check your Firebase configuration.");
+      console.error(err);
+      alert("Error booking slot. If you are using your own Firebase project, ensure 'Authentication' is enabled and 'Firestore' is in 'Test Mode'.");
     } finally {
       setIsLoading(false);
     }
@@ -162,16 +199,17 @@ export default function App() {
 
   const handleTrack = async (e) => {
     e.preventDefault();
-    if (!db) return;
+    if (!user) return;
     setIsLoading(true);
-    const q = query(
-      collection(db, 'artifacts', appId, 'public', 'data', 'appointments'),
-      where("email", "==", trackInfo.email),
-      where("refCode", "==", trackInfo.refCode)
-    );
+    // Simple query per mandatory rules
+    const q = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
     try {
       const snap = await getDocs(q);
-      if (!snap.empty) setTrackedAppointment(snap.docs[0].data());
+      const found = snap.docs
+        .map(d => d.data())
+        .find(d => d.email === trackInfo.email && d.refCode === trackInfo.refCode);
+      
+      if (found) setTrackedAppointment(found);
       else alert("No appointment found. Please check your Email and Reference Code.");
     } finally { setIsLoading(false); }
   };
@@ -191,7 +229,8 @@ export default function App() {
         body: JSON.stringify({ contents: [{ parts: [{ text: `You are Lakshmi's personal assistant. Practice: ${PRACTICE_DETAILS.name}. Bio: ${PRACTICE_DETAILS.bio}. Specialties: ${PRACTICE_DETAILS.specialties.join(", ")}. Help users book time slots in the 'Book' tab or track existing ones. Date: ${new Date().toDateString()}.\nUser: ${text}` }] }] })
       });
       const data = await response.json();
-      setMessages(prev => [...prev, { role: 'assistant', text: data.candidates[0].content.parts[0].text }]);
+      const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm having trouble connecting right now.";
+      setMessages(prev => [...prev, { role: 'assistant', text: aiText }]);
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', text: "I'm experiencing a technical issue. Please email Lakshmi directly for support." }]);
     } finally { setIsTyping(false); }
@@ -235,6 +274,14 @@ export default function App() {
       )}
 
       <main className="pt-32 pb-24 px-6 max-w-6xl mx-auto min-h-screen">
+        
+        {authError && (
+          <div className="mb-8 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100 text-sm font-medium flex items-center gap-3">
+            <Shield size={18} />
+            Firebase Error: {authError}. Please ensure "Authentication" is enabled in your Firebase Console.
+          </div>
+        )}
+
         {activeTab === 'home' && (
           <div className="space-y-24">
             <section className="grid lg:grid-cols-2 gap-16 items-center animate-in fade-in slide-in-from-bottom-4 duration-700">
