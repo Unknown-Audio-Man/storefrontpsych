@@ -13,56 +13,50 @@ export default defineConfig({
 })
 EOF
 
-# 2. Create/Update GitHub Actions Workflow
-echo "Setting up .github/workflows/deploy.yml..."
-mkdir -p .github/workflows
-cat <<EOF > .github/workflows/deploy.yml
-name: Deploy to GitHub Pages
+# 2. Local Build and Manual Deployment Logic
+# This replaces the deploy.yml workflow to stay within local control
+echo "Building the project locally..."
 
-on:
-  push:
-    branches: [ main ]
+# Ensure dependencies are installed
+npm install
 
-permissions:
-  contents: write
+# Run the build process
+# Note: This uses your local .env file variables
+npm run build
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install and Build
-        run: |
-          npm install
-          npm run build
-        env:
-          VITE_FIREBASE_API_KEY: \${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: \${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: \${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: \${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: \${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: \${{ secrets.VITE_FIREBASE_APP_ID }}
-          VITE_ADMIN_CODE: \${{ secrets.VITE_ADMIN_CODE }}
-
-      - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          folder: dist
-          branch: gh-pages
-EOF
-
-# 3. Check for .env and upload secrets if gh is authenticated
-if [ -f .env ]; then
-    if gh auth status >/dev/null 2>&1; then
-        echo "Detected .env and authenticated gh CLI. Uploading secrets..."
-        gh secret set -f .env
-    else
-        echo "⚠️  .env found but gh CLI is not authenticated. Please run 'gh auth login' then 'gh secret set -f .env'"
-    fi
+if [ -d "dist" ]; then
+    echo "Build successful. Preparing to deploy to gh-pages branch..."
+    
+    # Initialize a temporary git repo in the dist folder
+    cd dist
+    
+    # FIX: Add .nojekyll file
+    # GitHub Pages uses Jekyll by default, which ignores files/folders starting 
+    # with underscores and can mess up Vite's asset routing.
+    touch .nojekyll
+    echo "Created .nojekyll file to prevent GitHub Pages routing issues."
+    
+    git init
+    git add -A
+    git commit -m "Manual deploy from local machine"
+    
+    # Force push to the gh-pages branch of your repository
+    # This assumes your remote is named 'origin'
+    echo "Pushing to GitHub..."
+    git push -f git@github.com:Unknown-Audio-Man/storefrontpsych.git master:gh-pages
+    
+    cd ..
+    echo "✅ Manual deployment complete! Your site should update at:"
+    echo "https://unknown-audio-man.github.io/storefrontpsych/"
 else
-    echo "⚠️  .env file not found. Create one with your VITE_ keys first!"
+    echo "❌ Build failed. 'dist' folder not found. Please check for errors above."
+    exit 1
 fi
 
-echo "✅ Configuration fixed. Now commit and push your changes."
+# 3. Reminder for Environment Variables
+if [ ! -f .env ]; then
+    echo "⚠️  Warning: .env file not found. Your build might be missing Firebase credentials."
+    echo "Please create a .env file with your VITE_FIREBASE_... keys before running this again."
+fi
+
+echo "✅ Local configuration and deployment script finished."
