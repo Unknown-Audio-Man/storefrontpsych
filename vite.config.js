@@ -3,5 +3,6 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/storefrontpsych/',
+  // Add this line matching your GitHub repository name exactly:
+  base: '/storefrontpsych/', 
 })
