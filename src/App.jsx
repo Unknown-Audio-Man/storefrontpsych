@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
-  getFirestore, collection, addDoc, query, where, getDocs, 
-  updateDoc, doc, onSnapshot, serverTimestamp 
+  getFirestore, collection, addDoc, getDocs, 
+  updateDoc, doc, onSnapshot 
 } from 'firebase/firestore';
 import { 
   getAuth, 
@@ -134,12 +134,12 @@ export default function App() {
     if (!user || !selectedDate) return;
     const fetchSlots = async () => {
       try {
-        const q = query(
-          collection(db, 'artifacts', appId, 'public', 'data', 'appointments'),
-          where("date", "==", selectedDate)
-        );
-        const querySnapshot = await getDocs(q);
-        const booked = querySnapshot.docs.map(doc => doc.data().slot);
+        // Simple collection query, filtered in-memory per Mandatory Rule 2
+        const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
+        const booked = querySnapshot.docs
+          .map(doc => doc.data())
+          .filter(data => data.date === selectedDate)
+          .map(data => data.slot);
         setBookedSlots(booked);
       } catch (err) {
         console.error("Error fetching slots:", err);
@@ -155,7 +155,7 @@ export default function App() {
     const unsubscribe = onSnapshot(q, 
       (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setAllAppointments(data.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)));
+        setAllAppointments(data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)));
       }, 
       (error) => {
         console.error("Admin listener error:", error);
@@ -184,14 +184,16 @@ export default function App() {
       slot: selectedSlot,
       refCode,
       status: 'Confirmed', 
-      timestamp: serverTimestamp()
+      timestamp: Date.now() // Use standard date instead of serverTimestamp to prevent UI delays
     };
 
     try {
-      // 1. Save to Firebase Database
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData);
+      // Optimistic UI Update: Fire-and-forget the write. Firebase handles the local caching 
+      // and background network syncing automatically.
+      addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData)
+        .catch(err => console.error("Firestore sync error:", err));
       
-      // 2. Optional: Send Email via Web3Forms (Replaces Google Sheets)
+      // Optional: Send Email via Web3Forms
       if (WEB3FORMS_ACCESS_KEY) {
         fetch('https://api.web3forms.com/submit', {
           method: 'POST',
@@ -204,10 +206,11 @@ export default function App() {
         }).catch(e => console.log("Email Notification Error:", e));
       }
 
+      // Immediately show success screen
       setBookingResult(refCode);
     } catch (err) {
       console.error(err);
-      alert("Error booking slot. Please ensure your Firebase Firestore is in 'Test Mode' and Authentication is enabled.");
+      alert("An unexpected error occurred while booking.");
     } finally {
       setIsLoading(false);
     }
