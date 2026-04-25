@@ -184,14 +184,12 @@ export default function App() {
       slot: selectedSlot,
       refCode,
       status: 'Confirmed', 
-      timestamp: Date.now() // Use standard date instead of serverTimestamp to prevent UI delays
+      timestamp: Date.now() 
     };
 
     try {
-      // Optimistic UI Update: Fire-and-forget the write. Firebase handles the local caching 
-      // and background network syncing automatically.
-      addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData)
-        .catch(err => console.error("Firestore sync error:", err));
+      // Force await so we catch permission errors. If this fails, the catch block runs.
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData);
       
       // Optional: Send Email via Web3Forms
       if (WEB3FORMS_ACCESS_KEY) {
@@ -206,11 +204,11 @@ export default function App() {
         }).catch(e => console.log("Email Notification Error:", e));
       }
 
-      // Immediately show success screen
+      // Show success screen only after database confirmation
       setBookingResult(refCode);
     } catch (err) {
-      console.error(err);
-      alert("An unexpected error occurred while booking.");
+      console.error("Firebase Sync Error:", err);
+      alert("Database error: Unable to save your booking. Please ensure your Firestore Security Rules allow read/write access (e.g., Test Mode).");
     } finally {
       setIsLoading(false);
     }
@@ -231,6 +229,7 @@ export default function App() {
       else alert("No appointment found. Please check your Email and Reference Code.");
     } catch (err) {
       console.error(err);
+      alert("Error tracking appointment. Please ensure your Firestore database is set up correctly.");
     } finally { setIsLoading(false); }
   };
 
