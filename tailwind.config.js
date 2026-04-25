@@ -2,15 +2,10 @@
 export default {
   content: [
     "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,ts,jsx,tsx}", // Ensures it scans your App.jsx
   ],
   theme: {
-    extend: {
-      fontFamily: {
-        serif: ['"Noto Serif"', 'serif'],
-        sans: ['"Noto Sans"', 'sans-serif'],
-      },
-    },
+    extend: {},
   },
   plugins: [],
 }
