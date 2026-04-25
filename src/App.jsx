@@ -13,12 +13,13 @@ import {
 import { 
   Calendar as CalendarIcon, MessageSquare, User, Clock, CheckCircle, 
   ChevronRight, Menu, X, Globe, Heart, Shield, Send, 
-  MapPin, Mail, Phone, HelpCircle, ArrowRight, ExternalLink, 
+  MapPin, Mail, Phone, HelpCircle, ArrowRight, 
   Lock, Search, RefreshCw, Clipboard, ChevronLeft, Award
 } from 'lucide-react';
 
 // --- FIREBASE INITIALIZATION ---
-const userFirebaseConfig = {
+// Using your exact Firebase configuration
+const firebaseConfig = {
   apiKey: "AIzaSyAARehJ7GqdaZJFOfw1a-GJmVBf3LscN34",
   authDomain: "storefrontpsych.firebaseapp.com",
   projectId: "storefrontpsych",
@@ -28,28 +29,13 @@ const userFirebaseConfig = {
   measurementId: "G-QE551X53EM"
 };
 
-// Safely merge environment config with user config to ensure apiKey is never lost
-const firebaseConfig = (() => {
-  if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-    try {
-      const envConfig = JSON.parse(__firebase_config);
-      return { ...userFirebaseConfig, ...envConfig };
-    } catch (e) {
-      return userFirebaseConfig;
-    }
-  }
-  return userFirebaseConfig;
-})();
+const appId = "lakshmi-psych-practice";
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'lakshmi-psych-practice';
-
-// Initialize Firebase services outside the component
+// Initialize Firebase services directly with your config
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
-// Configuration for other services
-const GOOGLE_SHEET_WEBHOOK_URL = ""; 
 const GEMINI_API_KEY = ""; 
 
 const PRACTICE_DETAILS = {
@@ -113,11 +99,7 @@ export default function App() {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        await signInAnonymously(auth);
       } catch (err) {
         console.error("Auth initialization failed:", err);
         setAuthError(err.message);
@@ -188,19 +170,10 @@ export default function App() {
 
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData);
-      
-      if (GOOGLE_SHEET_WEBHOOK_URL) {
-        fetch(GOOGLE_SHEET_WEBHOOK_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          body: JSON.stringify(appointmentData)
-        }).catch(e => console.log("Sheet Sync Error:", e));
-      }
-
       setBookingResult(refCode);
     } catch (err) {
       console.error(err);
-      alert("Error booking slot. Please ensure your Firebase Firestore is in 'Test Mode' and Authentication is enabled.");
+      alert("Error booking slot. Please ensure your Firebase Firestore is set up and Authentication is enabled.");
     } finally {
       setIsLoading(false);
     }
@@ -286,9 +259,16 @@ export default function App() {
       <main className="pt-32 pb-24 px-6 max-w-6xl mx-auto min-h-screen">
         
         {authError && (
-          <div className="mb-8 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100 text-sm font-medium flex items-center gap-3">
-            <Shield size={18} />
-            Firebase Status: {authError}. (Ensure 'Anonymous' is enabled in Firebase Console &gt; Auth &gt; Sign-in method).
+          <div className="mb-8 p-6 bg-red-50 text-red-800 rounded-[2rem] border border-red-100 flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
+            <Shield size={32} className="shrink-0 text-red-500" />
+            <div className="space-y-1">
+              <h4 className="font-bold text-sm tracking-wide">Action Required: Enable Authentication</h4>
+              <p className="text-sm opacity-90 leading-relaxed font-light">
+                Your database is connected, but Firebase Authentication is not yet activated. 
+                Please log in to your Firebase Console, click <strong>"Authentication"</strong> in the sidebar, click <strong>"Get Started"</strong>, 
+                go to the <strong>"Sign-in method"</strong> tab, and enable <strong>"Anonymous"</strong>.
+              </p>
+            </div>
           </div>
         )}
 
@@ -482,9 +462,6 @@ export default function App() {
                 <p className="text-stone-400 text-sm font-medium tracking-widest uppercase">Management Portal</p>
               </div>
               <div className="flex gap-4">
-                <a href={GOOGLE_SHEET_WEBHOOK_URL ? "https://docs.google.com/spreadsheets" : "#"} target="_blank" className="bg-green-50 text-green-700 px-6 py-3 rounded-2xl text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-green-100 transition-colors border border-green-100">
-                  <ExternalLink size={14} /> Open Google Sheet
-                </a>
                 <button onClick={() => setIsAdmin(false)} className="bg-stone-100 p-3 rounded-2xl text-stone-400 hover:text-red-500 transition-colors"><X size={24}/></button>
               </div>
             </div>
