@@ -13,13 +13,12 @@ import {
 import { 
   Calendar as CalendarIcon, MessageSquare, User, Clock, CheckCircle, 
   ChevronRight, Menu, X, Globe, Heart, Shield, Send, 
-  MapPin, Mail, Phone, HelpCircle, ArrowRight, 
+  MapPin, Mail, Phone, HelpCircle, ArrowRight, ExternalLink, 
   Lock, Search, RefreshCw, Clipboard, ChevronLeft, Award
 } from 'lucide-react';
 
 // --- FIREBASE INITIALIZATION ---
-// Using your exact Firebase configuration
-const firebaseConfig = {
+const userFirebaseConfig = {
   apiKey: "AIzaSyAARehJ7GqdaZJFOfw1a-GJmVBf3LscN34",
   authDomain: "storefrontpsych.firebaseapp.com",
   projectId: "storefrontpsych",
@@ -29,13 +28,29 @@ const firebaseConfig = {
   measurementId: "G-QE551X53EM"
 };
 
-const appId = "lakshmi-psych-practice";
+// Safely merge environment config with user config to ensure apiKey is never lost
+const firebaseConfig = (() => {
+  if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+    try {
+      const envConfig = JSON.parse(__firebase_config);
+      return { ...userFirebaseConfig, ...envConfig };
+    } catch (e) {
+      return userFirebaseConfig;
+    }
+  }
+  return userFirebaseConfig;
+})();
 
-// Initialize Firebase services directly with your config
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'lakshmi-psych-practice';
+
+// Initialize Firebase services outside the component
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
+// --- NOTIFICATION CONFIGURATION ---
+// Get a free key from https://web3forms.com/ to receive email alerts when someone books
+const WEB3FORMS_ACCESS_KEY = ""; 
 const GEMINI_API_KEY = ""; 
 
 const PRACTICE_DETAILS = {
@@ -99,7 +114,11 @@ export default function App() {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        await signInAnonymously(auth);
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
       } catch (err) {
         console.error("Auth initialization failed:", err);
         setAuthError(err.message);
@@ -169,11 +188,26 @@ export default function App() {
     };
 
     try {
+      // 1. Save to Firebase Database
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData);
+      
+      // 2. Optional: Send Email via Web3Forms (Replaces Google Sheets)
+      if (WEB3FORMS_ACCESS_KEY) {
+        fetch('https://api.web3forms.com/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            access_key: WEB3FORMS_ACCESS_KEY,
+            subject: `New Booking: ${bookingForm.name} (${refCode})`,
+            ...appointmentData
+          })
+        }).catch(e => console.log("Email Notification Error:", e));
+      }
+
       setBookingResult(refCode);
     } catch (err) {
       console.error(err);
-      alert("Error booking slot. Please ensure your Firebase Firestore is set up and Authentication is enabled.");
+      alert("Error booking slot. Please ensure your Firebase Firestore is in 'Test Mode' and Authentication is enabled.");
     } finally {
       setIsLoading(false);
     }
