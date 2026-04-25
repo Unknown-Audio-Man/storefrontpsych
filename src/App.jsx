@@ -1,141 +1,98 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  getFirestore, collection, addDoc, getDocs, 
-  updateDoc, doc, onSnapshot 
-} from 'firebase/firestore';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  signInWithCustomToken, 
-  onAuthStateChanged 
-} from 'firebase/auth';
-import { 
-  Calendar as CalendarIcon, MessageSquare, User, Clock, CheckCircle, 
-  ChevronRight, Menu, X, Globe, Heart, Shield, Send, 
-  MapPin, Mail, Phone, HelpCircle, ArrowRight, ExternalLink, 
-  Lock, Search, RefreshCw, Clipboard, ChevronLeft, Award
+  Calendar, Clock, User, Mail, Search, ChevronRight, 
+  MapPin, Phone, CheckCircle, AlertCircle, Loader2,
+  CalendarCheck, Shield, Filter, LogOut, Check, X, ShieldCheck
 } from 'lucide-react';
 
-/**
- * --- SECURE CONFIGURATION ---
- * Accessing environment variables safely to satisfy both the Canvas es2015 compiler
- * and your local Vite build environment.
- */
-const getSafeConfig = () => {
-  // 1. Check for platform-specific global (used in Canvas preview)
+// Firebase Imports
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+
+// ============================================================================
+// FIREBASE CONFIGURATION & INITIALIZATION
+// ============================================================================
+const getFirebaseConfig = () => {
+  // First, check for environment-provided config (e.g., standard preview environments)
   if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-    try {
-      return JSON.parse(__firebase_config);
-    } catch (e) {
-      console.error("Failed to parse __firebase_config", e);
-    }
+    return JSON.parse(__firebase_config);
   }
-
-  // 2. Safe check for Vite environment variables (used in your local build)
-  // We wrap this to prevent the es2015 target compiler from throwing errors on syntax
-  try {
-    const meta = typeof import.meta !== 'undefined' ? import.meta : {};
-    const env = meta.env || {};
-    
-    if (env.VITE_FIREBASE_API_KEY) {
-      return {
-        apiKey: env.VITE_FIREBASE_API_KEY,
-        authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
-        projectId: env.VITE_FIREBASE_PROJECT_ID,
-        storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
-        messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-        appId: env.VITE_FIREBASE_APP_ID,
-        measurementId: env.VITE_FIREBASE_MEASUREMENT_ID
-      };
-    }
-  } catch (e) {
-    // Silently fall back
-  }
-
-  return null;
+  // Fallback configuration
+  return {
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: ""
+  };
 };
 
-const firebaseConfig = getSafeConfig();
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'lakshmi-psych-practice-v5';
+const app = initializeApp(getFirebaseConfig());
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-// Initialize Firebase services only if config is available
-const app = firebaseConfig ? initializeApp(firebaseConfig) : null;
-const db = app ? getFirestore(app) : null;
-const auth = app ? getAuth(app) : null;
+// Use global environment app ID or a unique string for isolation
+const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'lakshmi-clinical-portal';
 
-// Securely access Admin and Gemini secrets from environment variables
-const getSecureSecret = (key) => {
-  try {
-    const meta = typeof import.meta !== 'undefined' ? import.meta : {};
-    return meta.env ? meta.env[key] : "";
-  } catch (e) {
-    return "";
-  }
+// Admin code fallback for preview environments where env vars might not be set
+const ADMIN_CODE = 'CLINICAL2026';
+
+// ============================================================================
+// HELPER COMPONENTS
+// ============================================================================
+const Toast = ({ message, type, onClose }) => {
+  if (!message) return null;
+  const isError = type === 'error';
+  return (
+    <div className={`fixed top-4 right-4 z-50 flex items-center p-4 rounded-lg shadow-lg border-l-4 ${isError ? 'bg-red-50 border-red-500 text-red-800' : 'bg-emerald-50 border-emerald-500 text-emerald-800'} transition-all duration-300 ease-in-out`}>
+      {isError ? <AlertCircle className="w-5 h-5 mr-3" /> : <CheckCircle className="w-5 h-5 mr-3" />}
+      <span className="font-medium text-sm">{message}</span>
+      <button onClick={onClose} className="ml-4 opacity-70 hover:opacity-100">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
 };
 
-const SECRET_ADMIN_CODE = getSecureSecret('VITE_ADMIN_CODE') || "Lakshmi2024";
-const GEMINI_API_KEY = getSecureSecret('VITE_GEMINI_API_KEY') || ""; 
-
-const PRACTICE_DETAILS = {
-  name: "Lakshmi Mupparthi, M.A., R.P.",
-  title: "Registered Psychotherapist (Qualifying)",
-  location: "Saint Catharines, ON",
-  email: "connect@lakshmimupparthi.com",
-  phone: "(905) 555-0198",
-  languages: ["English", "Hindi", "Telugu"],
-  specialties: [
-    "Anxiety & Depression",
-    "Relational Wounds",
-    "Trauma & Attachment",
-    "Neurodivergence (ADHD/ASD)",
-    "Life Transitions",
-    "Cultural & Identity Issues"
-  ],
-  qualifications: [
-    "Registered Psychotherapist (Qualifying) with the CRPO",
-    "Masters in Psychology",
-    "Diploma in Clinical Psychology",
-    "Registered member with the Rehabilitation Council of India",
-    "Training in Neuropsychological Assessments"
-  ],
-  approach: "Integrative (Humanistic, Emotion-Focused (EFT), CBT, Psychodynamic)",
-  bio: "I support adults and couples seeking change beyond surface-level patterns. My practice is shaped by clinical training and my own experience navigating tradition-bound cultural norms and neurodivergence. I believe in mapping the contours of your experience together to find meaning beneath anxiety."
-};
-
-const TIME_SLOTS = ["09:00 AM", "10:00 AM", "11:00 AM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM"];
-
+// ============================================================================
+// MAIN APPLICATION COMPONENT
+// ============================================================================
 export default function App() {
-  const [activeTab, setActiveTab] = useState('home');
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  // State: Core & Auth
   const [user, setUser] = useState(null);
-  const [authError, setAuthError] = useState(null);
-  
-  // AI Assistant State
-  const [messages, setMessages] = useState([{ role: 'assistant', text: "Hello. I'm Lakshmi's virtual assistant. How can I support your journey today?" }]);
-  const [chatInput, setChatInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const chatEndRef = useRef(null);
-
-  // Booking & Tracking State
-  const [bookingForm, setBookingForm] = useState({ name: '', email: '', service: 'individual', message: '' });
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedSlot, setSelectedSlot] = useState('');
-  const [bookedSlots, setBookedSlots] = useState([]);
-  const [bookingResult, setBookingResult] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [trackInfo, setTrackInfo] = useState({ email: '', refCode: '' });
-  const [trackedAppointment, setTrackedAppointment] = useState(null);
-
-  // Admin Portal State
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminKeyInput, setAdminKeyInput] = useState('');
-  const [allAppointments, setAllAppointments] = useState([]);
+  const [currentView, setCurrentView] = useState('home'); // 'home', 'admin'
+  const [dbError, setDbError] = useState(null);
+  const [toast, setToast] = useState({ message: '', type: '' });
+  
+  // State: Data
+  const [bookings, setBookings] = useState([]);
+  
+  // State: Booking Form
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTime, setSelectedTime] = useState(null);
+  const [bookingForm, setBookingForm] = useState({ name: '', email: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [bookingSuccess, setBookingSuccess] = useState(null);
 
-  // Authentication Setup
+  // State: Tracking Form
+  const [trackEmail, setTrackEmail] = useState('');
+  const [trackRef, setTrackRef] = useState('');
+  const [trackResult, setTrackResult] = useState(null);
+  
+  // State: Admin Secret Clicker
+  const [footerClickCount, setFooterClickCount] = useState(0);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+
+  // --------------------------------------------------------------------------
+  // FIREBASE INITIALIZATION & SUBSCRIPTIONS
+  // --------------------------------------------------------------------------
   useEffect(() => {
-    if (!auth) return;
+    let isMounted = true;
+    
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -143,380 +100,676 @@ export default function App() {
         } else {
           await signInAnonymously(auth);
         }
-      } catch (err) {
-        console.error("Auth failed:", err);
-        setAuthError(err.message);
+      } catch (error) {
+        console.error("Auth init error:", error);
+        if (isMounted) showToast("Authentication failed. Database features may not work.", "error");
       }
     };
+
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      if (isMounted) setUser(currentUser);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribeAuth();
+    };
   }, []);
 
-  // Fetch Availability
   useEffect(() => {
-    if (!user || !selectedDate || !db) return;
-    const fetchSlots = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
-        const booked = querySnapshot.docs
-          .map(doc => doc.data())
-          .filter(data => data.date === selectedDate)
-          .map(data => data.slot);
-        setBookedSlots(booked);
-      } catch (err) {
-        console.error("Error checking availability:", err);
-      }
-    };
-    fetchSlots();
-  }, [user, selectedDate, bookingResult]);
-
-  // Admin Listener
-  useEffect(() => {
-    if (!isAdmin || !user || !db) return;
-    const q = collection(db, 'artifacts', appId, 'public', 'data', 'appointments');
+    if (!user) return;
+    
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', 'bookings');
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAllAppointments(data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)));
+      // Sort in memory as per rule
+      data.sort((a, b) => b.createdAt - a.createdAt);
+      setBookings(data);
+      setDbError(null);
+    }, (error) => {
+      console.error("Firestore Subscription Error:", error);
+      setDbError(error.message);
     });
+
     return () => unsubscribe();
-  }, [isAdmin, user]);
+  }, [user]);
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+  // --------------------------------------------------------------------------
+  // LOGIC: UTILITIES
+  // --------------------------------------------------------------------------
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast({ message: '', type: '' }), 5000);
+  };
 
-  const handleBooking = async (e) => {
-    e.preventDefault();
-    if (!db) { alert("System configuration incomplete. Verify keys in .env"); return; }
-    if (!user) { alert("Establishing secure connection..."); return; }
-    if (!selectedSlot) { alert("Please select a time slot."); return; }
+  const generateRefId = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = 'LM-';
+    for (let i = 0; i < 6; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+    return result;
+  };
+
+  const timeSlots = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"];
+
+  // Get next 14 weekdays for calendar
+  const upcomingDays = useMemo(() => {
+    const days = [];
+    let current = new Date();
+    current.setHours(0,0,0,0);
     
-    setIsLoading(true);
-    const refCode = "LM-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-    const appointmentData = {
-      ...bookingForm,
-      date: selectedDate,
-      slot: selectedSlot,
-      refCode,
-      status: 'Confirmed', 
-      timestamp: Date.now() 
+    while(days.length < 14) {
+      if (current.getDay() !== 0 && current.getDay() !== 6) {
+        days.push(new Date(current));
+      }
+      current.setDate(current.getDate() + 1);
+    }
+    return days;
+  }, []);
+
+  // --------------------------------------------------------------------------
+  // HANDLERS
+  // --------------------------------------------------------------------------
+  const handleBookAppointment = async (e) => {
+    e.preventDefault();
+    if (!selectedDate || !selectedTime || !bookingForm.name || !bookingForm.email) {
+      showToast("Please complete all fields and select a time slot.", "error");
+      return;
+    }
+    if (!user) {
+      showToast("System not initialized. Please refresh the page.", "error");
+      return;
+    }
+
+    setIsSubmitting(true);
+    const dateStr = selectedDate.toISOString().split('T')[0];
+    
+    // Client-side double check for double booking
+    const isTaken = bookings.some(b => b.date === dateStr && b.time === selectedTime && b.status !== 'Cancelled');
+    if (isTaken) {
+      showToast("Sorry, this slot just got taken. Please select another.", "error");
+      setIsSubmitting(false);
+      return;
+    }
+
+    const refId = generateRefId();
+    const newBooking = {
+      date: dateStr,
+      time: selectedTime,
+      name: bookingForm.name,
+      email: bookingForm.email,
+      refId: refId,
+      status: 'Pending',
+      createdAt: Date.now(),
+      userId: user.uid
     };
 
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'), appointmentData);
-      setBookingResult(refCode);
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'bookings'), newBooking);
+      setBookingSuccess(newBooking);
+      setBookingForm({ name: '', email: '' });
+      setSelectedTime(null);
+      setSelectedDate(null);
+      showToast("Appointment request submitted successfully!");
     } catch (err) {
-      console.error("Write error:", err);
-      alert("Unable to save booking. Check database rules.");
+      console.error(err);
+      showToast("Failed to book appointment. Try again.", "error");
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
-  const handleTrack = async (e) => {
+  const handleTrackAppointment = (e) => {
     e.preventDefault();
-    if (!user || !db) return;
-    setIsLoading(true);
-    try {
-      const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'appointments'));
-      const found = querySnapshot.docs
-        .map(d => d.data())
-        .find(d => d.email === trackInfo.email && d.refCode === trackInfo.refCode);
-      if (found) setTrackedAppointment(found);
-      else alert("No appointment found. Please check your credentials.");
-    } finally { setIsLoading(false); }
+    const found = bookings.find(b => b.email.toLowerCase() === trackEmail.toLowerCase() && b.refId === trackRef.toUpperCase());
+    if (found) {
+      setTrackResult(found);
+    } else {
+      setTrackResult('not_found');
+    }
   };
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-    if (!GEMINI_API_KEY) {
-      setMessages(prev => [...prev, { role: 'assistant', text: "AI features require VITE_GEMINI_API_KEY." }]);
-      return;
-    }
-    const text = chatInput;
-    setMessages(prev => [...prev, { role: 'user', text }]);
-    setChatInput('');
-    setIsTyping(true);
-
+  const handleAdminStatusChange = async (id, newStatus) => {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: `You are Lakshmi's assistant. Practice: ${PRACTICE_DETAILS.name}. Help users book or track.\nUser: ${text}` }] }] })
-      });
-      const data = await response.json();
-      setMessages(prev => [...prev, { role: 'assistant', text: data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm having trouble connecting." }]);
+      const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'bookings', id);
+      await updateDoc(docRef, { status: newStatus });
+      showToast(`Status updated to ${newStatus}`);
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', text: "Technical error. Please try later." }]);
-    } finally { setIsTyping(false); }
+      showToast("Failed to update status", "error");
+    }
   };
 
-  return (
-    <div className="min-h-screen bg-[#fcfbf9] font-sans text-stone-800 selection:bg-emerald-100">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');`}</style>
-      
-      <nav className="fixed top-0 w-full bg-white/90 backdrop-blur-md z-40 border-b border-stone-100 h-20 px-6 flex items-center justify-between shadow-sm">
-        <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab('home')}>
-          <div className="w-10 h-10 bg-emerald-900 rounded-full flex items-center justify-center text-white font-serif text-xl">LM</div>
-          <div className="flex flex-col">
-            <span className="font-serif text-lg leading-none tracking-tight text-stone-900">Lakshmi Mupparthi</span>
-            <span className="text-[10px] uppercase tracking-widest text-stone-400 font-bold mt-1">Psychotherapy</span>
-          </div>
-        </div>
+  const handleFooterClick = () => {
+    const newCount = footerClickCount + 1;
+    setFooterClickCount(newCount);
+    if (newCount === 3) {
+      setShowAdminLogin(true);
+      setFooterClickCount(0);
+    }
+  };
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (adminPasswordInput === ADMIN_CODE) {
+      setIsAdmin(true);
+      setShowAdminLogin(false);
+      setCurrentView('admin');
+      showToast("Secure Dashboard Access Granted");
+    } else {
+      showToast("Invalid authorization code.", "error");
+    }
+    setAdminPasswordInput('');
+  };
+
+  // --------------------------------------------------------------------------
+  // RENDER: Admin Dashboard
+  // --------------------------------------------------------------------------
+  if (currentView === 'admin' && isAdmin) {
+    return (
+      <div className="min-h-screen bg-stone-100 p-6 md:p-12 font-sans text-stone-800">
+        <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: '' })} />
         
-        <div className="hidden md:flex items-center space-x-6">
-          {['home', 'about', 'services', 'tracking'].map(t => (
-            <button key={t} onClick={() => {setActiveTab(t); window.scrollTo(0,0)}} className={`text-[11px] uppercase tracking-widest font-bold transition-all ${activeTab === t ? 'text-emerald-900 border-b-2 border-emerald-900 pb-1' : 'text-stone-400 hover:text-stone-600'}`}>
-              {t}
-            </button>
-          ))}
-          <button onClick={() => {setActiveTab('booking'); window.scrollTo(0,0)}} className="bg-emerald-900 text-white px-6 py-2.5 rounded-full text-[11px] font-bold uppercase tracking-widest hover:bg-black transition-all">Book Slot</button>
-        </div>
-        
-        <button className="md:hidden" onClick={() => setIsMenuOpen(true)}><Menu /></button>
-      </nav>
-
-      {isMenuOpen && (
-        <div className="fixed inset-0 bg-white z-50 p-8 flex flex-col space-y-8 animate-in fade-in zoom-in-95">
-          <div className="flex justify-end"><button onClick={() => setIsMenuOpen(false)}><X size={32} /></button></div>
-          <div className="flex flex-col space-y-8 mt-12 text-3xl font-serif">
-            {['home', 'about', 'services', 'tracking'].map(t => (
-              <button key={t} className="text-left capitalize" onClick={() => {setActiveTab(t); setIsMenuOpen(false); window.scrollTo(0,0)}}>{t}</button>
-            ))}
-            <button className="text-left text-emerald-800" onClick={() => {setActiveTab('booking'); setIsMenuOpen(false); window.scrollTo(0,0)}}>Book Slot</button>
-          </div>
-        </div>
-      )}
-
-      <main className="pt-32 pb-24 px-6 max-w-6xl mx-auto min-h-screen">
-        {!app && (
-          <div className="mb-12 p-6 bg-amber-50 text-amber-800 rounded-3xl border border-amber-100 flex items-start gap-4">
-            <Shield className="text-amber-500 shrink-0" size={24} />
-            <div className="text-sm">
-              <p className="font-bold mb-1">Local Config Required</p>
-              <p className="font-light">Ensure your <code>.env</code> file is configured with VITE_ prefixed keys.</p>
-            </div>
-          </div>
-        )}
-
-        {authError && (
-          <div className="mb-12 p-6 bg-red-50 text-red-800 rounded-3xl border border-red-100 flex items-start gap-4">
-            <Shield className="text-red-500 shrink-0" size={24} />
-            <div className="text-sm">
-              <p className="font-bold mb-1">Auth Error</p>
-              <p className="font-light">{authError}. Verify Anonymous Auth is enabled in Console.</p>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'home' && (
-          <section className="grid lg:grid-cols-2 gap-16 items-center animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="space-y-8">
-              <div className="inline-block px-4 py-1.5 bg-emerald-50 text-emerald-800 text-[10px] font-bold uppercase tracking-widest rounded-full border border-emerald-100">Accepting New Patients</div>
-              <h1 className="text-6xl md:text-7xl font-serif leading-[1.1] text-stone-900">Find meaning beneath the <span className="italic text-emerald-800">anxiety.</span></h1>
-              <p className="text-xl text-stone-600 font-light leading-relaxed max-w-lg">{PRACTICE_DETAILS.bio}</p>
-              <div className="flex flex-col sm:flex-row gap-4 pt-4">
-                <button onClick={() => setActiveTab('booking')} className="bg-emerald-900 text-white px-10 py-5 rounded-full font-bold uppercase text-xs tracking-widest shadow-xl hover:bg-black transition-all flex items-center justify-center gap-2">Choose a Time Slot <ArrowRight size={16}/></button>
-                <button onClick={() => setIsChatOpen(true)} className="bg-white border border-stone-200 px-10 py-5 rounded-full font-bold uppercase text-xs tracking-widest hover:bg-stone-50 transition-all flex items-center justify-center gap-2"><MessageSquare size={16}/> Ask Assistant</button>
+        <div className="max-w-6xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden border border-stone-200">
+          <div className="bg-stone-900 text-stone-100 p-6 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="flex items-center gap-3">
+              <ShieldCheck className="w-8 h-8 text-emerald-400" />
+              <div>
+                <h1 className="text-2xl font-bold">Clinical Dashboard</h1>
+                <p className="text-sm text-stone-400">Lakshmi Mupparthi • Restricted Access</p>
               </div>
             </div>
-            <div className="relative aspect-[3/4] bg-stone-100 rounded-[3rem] shadow-2xl overflow-hidden group">
-              <img src="https://cfir.ca/wp-content/uploads/2023/12/Website-picture-800x914.jpg" className="absolute inset-0 w-full h-full object-cover" alt="Lakshmi Mupparthi" />
-            </div>
-          </section>
-        )}
-
-        {activeTab === 'about' && (
-          <div className="max-w-4xl mx-auto space-y-16 animate-in fade-in">
-            <div className="text-center space-y-4">
-              <h2 className="text-5xl font-serif">The Practice</h2>
-              <div className="w-16 h-1 bg-emerald-900 mx-auto rounded-full" />
-            </div>
-            <div className="grid md:grid-cols-3 gap-12">
-              <div className="md:col-span-2 space-y-8">
-                <p className="text-2xl font-serif italic text-stone-700 leading-relaxed border-l-4 border-emerald-800 pl-8">"I believe in mapping the contours of your experience together."</p>
-                <div className="prose prose-stone text-stone-600 space-y-6 leading-relaxed font-light">
-                  <p>{PRACTICE_DETAILS.bio}</p>
-                </div>
+            
+            <div className="flex items-center gap-6">
+               <div className="flex items-center gap-2 text-sm">
+                <div className={`w-3 h-3 rounded-full ${dbError ? 'bg-red-500' : 'bg-emerald-500'}`} />
+                <span>DB Status: {dbError ? 'Disconnected' : 'Connected'}</span>
               </div>
-              <div className="space-y-8">
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-stone-100">
-                  <h4 className="font-bold text-xs uppercase tracking-[0.2em] text-emerald-800 mb-6 flex items-center gap-2"><Award size={16}/> Qualifications</h4>
-                  <ul className="space-y-4">
-                    {PRACTICE_DETAILS.qualifications.map((q, i) => (
-                      <li key={i} className="text-xs text-stone-500 flex gap-3 items-start font-medium">
-                        <CheckCircle className="text-emerald-700 shrink-0" size={14} /> {q}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'services' && (
-          <div className="space-y-16 animate-in fade-in">
-            <div className="text-center space-y-4">
-              <h2 className="text-5xl font-serif text-stone-900">Therapeutic Specialties</h2>
-              <p className="text-stone-400 font-light tracking-wide uppercase text-xs">Integrative care</p>
-            </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {PRACTICE_DETAILS.specialties.map((s, i) => (
-                <div key={i} className="bg-white p-10 rounded-[2.5rem] border border-stone-100 shadow-sm hover:shadow-xl transition-all group">
-                  <Heart className="text-emerald-700 mb-6 group-hover:scale-110 transition-transform" size={28} />
-                  <h3 className="text-xl font-serif text-stone-800 mb-4">{s}</h3>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'booking' && (
-          <div className="max-w-5xl mx-auto py-12 animate-in fade-in">
-            {bookingResult ? (
-              <div className="bg-white p-16 rounded-[3rem] shadow-2xl text-center space-y-8 border border-stone-100">
-                <CheckCircle size={64} className="text-emerald-700 mx-auto" />
-                <h2 className="text-4xl font-serif">Booking Confirmed</h2>
-                <div className="text-3xl font-bold tracking-[0.3em] bg-stone-50 py-4 px-10 rounded-2xl inline-block border border-stone-200">{bookingResult}</div>
-                <p className="text-stone-400 text-sm font-light">Lakshmi will contact you shortly.</p>
-                <button onClick={() => setBookingResult(null)} className="text-emerald-800 font-bold underline block mx-auto uppercase tracking-widest text-[10px]">Back to calendar</button>
-              </div>
-            ) : (
-              <div className="grid lg:grid-cols-5 gap-8 bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-stone-100 p-8">
-                <div className="lg:col-span-2 space-y-8 border-r border-stone-50 pr-8">
-                  <h3 className="text-2xl font-serif flex items-center gap-3"><CalendarIcon className="text-emerald-800" size={28}/> Select Date</h3>
-                  <input type="date" min={new Date().toISOString().split('T')[0]} className="w-full bg-stone-50 p-5 rounded-2xl outline-none border border-stone-100 font-medium" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
-                  <div className="space-y-4">
-                    <h4 className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Available Slots</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      {TIME_SLOTS.map(slot => (
-                        <button key={slot} disabled={bookedSlots.includes(slot)} onClick={() => setSelectedSlot(slot)} className={`p-4 rounded-xl text-[11px] font-bold transition-all border shadow-sm ${bookedSlots.includes(slot) ? 'opacity-20 cursor-not-allowed bg-stone-50 text-stone-300' : selectedSlot === slot ? 'bg-emerald-900 text-white border-emerald-900 shadow-lg' : 'bg-white text-stone-600 border-stone-100 hover:border-emerald-200'}`}>{slot}</button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="lg:col-span-3 space-y-6 pl-4">
-                  <h3 className="text-2xl font-serif">Your Information</h3>
-                  <form onSubmit={handleBooking} className="space-y-5">
-                    <div className="grid md:grid-cols-2 gap-5">
-                      <input required className="w-full bg-stone-50 border border-stone-100 rounded-2xl px-5 py-4 outline-none font-light" placeholder="Full Name" value={bookingForm.name} onChange={(e) => setBookingForm({...bookingForm, name: e.target.value})} />
-                      <input required type="email" className="w-full bg-stone-50 border border-stone-100 rounded-2xl px-5 py-4 outline-none font-light" placeholder="Email" value={bookingForm.email} onChange={(e) => setBookingForm({...bookingForm, email: e.target.value})} />
-                    </div>
-                    <select className="w-full bg-stone-50 border border-stone-100 rounded-2xl px-5 py-4 outline-none font-medium" value={bookingForm.service} onChange={(e) => setBookingForm({...bookingForm, service: e.target.value})}>
-                      <option value="individual">Individual Psychotherapy</option>
-                      <option value="couples">Couples Therapy</option>
-                    </select>
-                    <textarea className="w-full bg-stone-50 border border-stone-100 rounded-2xl px-5 py-4 outline-none h-32 resize-none font-light" placeholder="Brief notes..." value={bookingForm.message} onChange={(e) => setBookingForm({...bookingForm, message: e.target.value})} />
-                    <button disabled={!selectedSlot || isLoading} className="w-full md:w-auto bg-emerald-900 text-white px-12 py-5 rounded-2xl font-bold uppercase text-[10px] tracking-[0.2em] shadow-lg">Confirm My Slot</button>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'tracking' && (
-          <div className="max-w-2xl mx-auto space-y-12 py-12 animate-in fade-in">
-            <h2 className="text-4xl font-serif text-center">Track Booking</h2>
-            <form onSubmit={handleTrack} className="bg-white p-12 rounded-[3rem] shadow-xl border border-stone-100 space-y-6">
-              <input required type="email" className="w-full bg-stone-50 border border-stone-100 rounded-2xl px-5 py-4 outline-none font-light" placeholder="Email Address" value={trackInfo.email} onChange={(e) => setTrackInfo({...trackInfo, email: e.target.value})} />
-              <input required className="w-full bg-stone-50 border border-stone-100 rounded-2xl px-5 py-4 outline-none font-light" placeholder="Reference ID (LM-XXXXXX)" value={trackInfo.refCode} onChange={(e) => setTrackInfo({...trackInfo, refCode: e.target.value})} />
-              <button disabled={isLoading} className="w-full bg-emerald-900 text-white py-5 rounded-2xl font-bold uppercase text-[11px] tracking-[0.2em] flex items-center justify-center gap-3">
-                {isLoading ? <RefreshCw className="animate-spin" size={16} /> : "Verify Status"}
+              <button 
+                onClick={() => setCurrentView('home')}
+                className="flex items-center gap-2 bg-stone-800 hover:bg-stone-700 px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+              >
+                <LogOut className="w-4 h-4" />
+                Return to Site
               </button>
-            </form>
-            {trackedAppointment && (
-              <div className="bg-emerald-900 text-white p-12 rounded-[3rem] shadow-2xl animate-in zoom-in">
-                <h3 className="text-3xl font-serif mb-4">{trackedAppointment.name}</h3>
-                <span className="bg-white text-emerald-950 px-5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest">{trackedAppointment.status}</span>
-                <p className="font-serif text-4xl mt-6">{trackedAppointment.date} at {trackedAppointment.slot}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {isAdmin && (
-          <div className="py-12 animate-in fade-in space-y-12">
-            <div className="flex justify-between items-center border-b border-stone-200 pb-8">
-              <h2 className="text-5xl font-serif text-stone-900">Clinical Dashboard</h2>
-              <button onClick={() => setIsAdmin(false)} className="bg-stone-100 p-4 rounded-2xl text-stone-400 hover:text-red-500 transition-all"><X size={28}/></button>
-            </div>
-            <div className="grid gap-6">
-              {allAppointments.map((app) => (
-                <div key={app.id} className="bg-white p-10 rounded-[3rem] shadow-sm border border-stone-100 flex flex-col md:flex-row justify-between items-center gap-10">
-                  <div className="space-y-4 text-center md:text-left flex-1">
-                    <p className="text-xs font-bold text-emerald-800 uppercase tracking-[0.2em]">{app.date} • {app.slot}</p>
-                    <p className="text-3xl font-serif text-stone-900">{app.name} <span className="text-xs text-stone-200 ml-2">#{app.refCode}</span></p>
-                    <p className="text-stone-400 text-sm font-light"><Mail size={14} className="inline mr-2"/> {app.email}</p>
-                  </div>
-                  <select value={app.status} onChange={(e) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'appointments', app.id), { status: e.target.value })} className="border-none rounded-2xl text-[11px] font-bold uppercase p-6 outline-none bg-stone-50">
-                    <option value="Confirmed">Confirmed</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Cancelled">Cancelled</option>
-                  </select>
-                </div>
-              ))}
             </div>
           </div>
-        )}
-      </main>
 
-      <div className={`fixed bottom-8 right-8 z-50 transition-all duration-500 transform origin-bottom-right ${isChatOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-8 pointer-events-none'}`}>
-        <div className="bg-white w-[calc(100vw-3rem)] max-w-[400px] h-[600px] rounded-[3rem] shadow-2xl border border-stone-200 flex flex-col overflow-hidden">
-          <div className="bg-emerald-900 p-7 text-white flex justify-between items-center shadow-lg">
-             <span className="font-serif text-lg">Assistant</span>
-             <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-white/10 rounded-full"><X size={20}/></button>
+          <div className="p-6">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-200 text-sm uppercase text-stone-500">
+                    <th className="p-4 font-semibold">Date & Time</th>
+                    <th className="p-4 font-semibold">Patient</th>
+                    <th className="p-4 font-semibold">Ref ID</th>
+                    <th className="p-4 font-semibold">Status</th>
+                    <th className="p-4 font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {bookings.map((b) => (
+                    <tr key={b.id} className="hover:bg-stone-50 transition-colors">
+                      <td className="p-4">
+                        <div className="font-medium text-stone-800">{b.date}</div>
+                        <div className="text-sm text-stone-500">{b.time}</div>
+                      </td>
+                      <td className="p-4">
+                        <div className="font-medium text-stone-800">{b.name}</div>
+                        <div className="text-sm text-stone-500">{b.email}</div>
+                      </td>
+                      <td className="p-4 font-mono text-sm">{b.refId}</td>
+                      <td className="p-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold
+                          ${b.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-800' : 
+                            b.status === 'Cancelled' ? 'bg-red-100 text-red-800' : 
+                            'bg-amber-100 text-amber-800'}`}>
+                          {b.status}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        <select 
+                          value={b.status}
+                          onChange={(e) => handleAdminStatusChange(b.id, e.target.value)}
+                          className="bg-white border border-stone-300 text-stone-700 text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2"
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="Confirmed">Confirmed</option>
+                          <option value="Rescheduled">Rescheduled</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                  {bookings.length === 0 && (
+                    <tr>
+                      <td colSpan="5" className="p-8 text-center text-stone-500">
+                        No appointments found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-7 space-y-5 bg-[#fcfbf9]">
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
-                <div className={`max-w-[85%] p-4 rounded-2xl text-[15px] leading-relaxed shadow-sm ${m.role === 'user' ? 'bg-stone-800 text-white rounded-br-none' : 'bg-white border border-stone-200 rounded-bl-none text-stone-700'}`}>{m.text}</div>
-              </div>
-            ))}
-            {isTyping && <div className="p-4 flex gap-2"><div className="w-2 h-2 bg-stone-200 rounded-full animate-bounce" /><div className="w-2 h-2 bg-stone-200 rounded-full animate-bounce [animation-delay:0.2s]" /><div className="w-2 h-2 bg-stone-200 rounded-full animate-bounce [animation-delay:0.4s]" /></div>}
-            <div ref={chatEndRef} />
-          </div>
-          <form onSubmit={handleSendMessage} className="p-5 bg-white border-t border-stone-50 flex gap-3">
-            <input className="flex-1 bg-stone-50 border border-stone-100 rounded-2xl px-5 py-4 text-sm outline-none focus:ring-1 focus:ring-emerald-900 transition-all font-light" placeholder="Ask about availability..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} />
-            <button className="bg-emerald-900 text-white p-4 rounded-2xl shadow-lg active:scale-90"><Send size={20}/></button>
-          </form>
         </div>
       </div>
+    );
+  }
 
-      <footer className="bg-stone-50 py-32 border-t border-stone-100 text-center">
-        <div className="max-w-6xl mx-auto px-6 space-y-10">
-          <div className="flex items-center justify-center space-x-4 grayscale opacity-30">
-            <div className="w-10 h-10 bg-emerald-900 rounded-full flex items-center justify-center text-white font-serif text-lg">LM</div>
-            <span className="text-stone-900 font-serif text-2xl tracking-[0.1em] uppercase">{PRACTICE_DETAILS.name}</span>
+  // --------------------------------------------------------------------------
+  // RENDER: Main Public Site
+  // --------------------------------------------------------------------------
+  return (
+    <div className="min-h-screen bg-stone-50 font-sans text-stone-800 flex flex-col">
+      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: '' })} />
+
+      {/* --- Navigation --- */}
+      <nav className="bg-white border-b border-stone-200 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-emerald-900">Lakshmi Mupparthi</h1>
+            <p className="text-xs text-stone-500 font-medium">M.A., R.P. (Qualifying)</p>
           </div>
-          <p className="text-[10px] uppercase tracking-widest text-stone-400 font-bold max-w-lg mx-auto leading-loose">
-            Lakshmi Mupparthi — Saint Catharines, Ontario.
+          <div className="hidden md:flex space-x-8 text-sm font-medium text-stone-600">
+            <a href="#about" className="hover:text-emerald-800 transition-colors">About</a>
+            <a href="#services" className="hover:text-emerald-800 transition-colors">Services</a>
+            <a href="#tracking" className="hover:text-emerald-800 transition-colors">Track Status</a>
+          </div>
+          <a href="#booking" className="bg-emerald-800 text-white px-5 py-2.5 rounded-full text-sm font-semibold hover:bg-emerald-900 transition-colors shadow-md">
+            Request Consult
+          </a>
+        </div>
+      </nav>
+
+      {/* --- Hero Section --- */}
+      <header className="max-w-6xl mx-auto px-6 py-16 md:py-24 flex flex-col md:flex-row items-center gap-12">
+        <div className="md:w-1/2 space-y-6">
+          <span className="inline-block py-1 px-3 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold tracking-wider uppercase">
+            Clinical Psychology Practice
+          </span>
+          <h2 className="text-4xl md:text-5xl font-extrabold text-stone-900 leading-tight">
+            Evidence-Based Therapy <br/><span className="text-emerald-800">for a Grounded Life.</span>
+          </h2>
+          <p className="text-lg text-stone-600 leading-relaxed max-w-lg">
+            Navigating trauma, anxiety, and relationship dynamics requires a compassionate, empirically supported approach. Let's work together to foster resilience and meaningful change.
           </p>
-          {!isAdmin && (
-            <div className="flex flex-col items-center gap-2 opacity-0 hover:opacity-100 transition-opacity duration-700 pt-10">
-              <input type="password" placeholder="Admin Login" className="bg-transparent border-b border-stone-200 text-[10px] outline-none text-center py-2 uppercase tracking-widest text-stone-500" value={adminKeyInput} onChange={(e) => setAdminKeyInput(e.target.value)} />
-              <button onClick={() => {
-                if (SECRET_ADMIN_CODE && adminKeyInput === SECRET_ADMIN_CODE) {
-                  setIsAdmin(true);
-                } else if (!SECRET_ADMIN_CODE) {
-                  alert("Admin code not configured in environment.");
-                } else {
-                  alert("Invalid Code");
-                }
-              }} className="text-[10px] uppercase font-bold tracking-widest text-emerald-800 underline mt-2">Manage Schedule</button>
+          <div className="flex gap-4 pt-4">
+            <a href="#booking" className="bg-emerald-800 text-white px-6 py-3 rounded-lg font-semibold hover:bg-emerald-900 transition-colors shadow-md flex items-center">
+              Book Appointment <ChevronRight className="w-5 h-5 ml-1" />
+            </a>
+            <a href="#about" className="bg-white border border-stone-300 text-stone-700 px-6 py-3 rounded-lg font-semibold hover:bg-stone-50 transition-colors">
+              Learn More
+            </a>
+          </div>
+        </div>
+        <div className="md:w-1/2">
+          <div className="relative">
+            <div className="absolute inset-0 bg-emerald-800 rounded-2xl transform translate-x-4 translate-y-4 opacity-20"></div>
+            <img 
+              src="https://cfir.ca/wp-content/uploads/2023/12/Website-picture-800x914.jpg" 
+              alt="Lakshmi Mupparthi" 
+              className="relative rounded-2xl shadow-xl w-full max-w-md mx-auto object-cover border border-stone-100"
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* --- About Section --- */}
+      <section id="about" className="bg-white py-20 border-y border-stone-200">
+        <div className="max-w-4xl mx-auto px-6 text-center space-y-8">
+          <h3 className="text-3xl font-bold text-stone-900">About Lakshmi</h3>
+          <p className="text-lg text-stone-600 leading-relaxed text-left md:text-center">
+            As a clinical practitioner affiliated with the Centre for Interpersonal Relationships (CFIR) across Toronto and Ottawa, I specialize in providing an integrative, trauma-informed approach to mental health. Drawing primarily from Cognitive Behavioural Therapy (CBT), Dialectical Behaviour Therapy (DBT), and Emotion-Focused Therapy (EFT), I tailor interventions to your unique psychological landscape.
+          </p>
+          <div className="flex flex-col md:flex-row justify-center gap-8 pt-6">
+            <div className="flex flex-col items-center p-4">
+              <MapPin className="w-8 h-8 text-emerald-700 mb-3" />
+              <span className="font-semibold text-stone-800">CFIR Clinics</span>
+              <span className="text-sm text-stone-500 text-center">Toronto, Ottawa & <br/>St. Catharines</span>
+            </div>
+            <div className="flex flex-col items-center p-4">
+              <Shield className="w-8 h-8 text-emerald-700 mb-3" />
+              <span className="font-semibold text-stone-800">Evidence-Based</span>
+              <span className="text-sm text-stone-500 text-center">CBT, DBT, EFT & <br/>Trauma-Informed</span>
+            </div>
+            <div className="flex flex-col items-center p-4">
+              <User className="w-8 h-8 text-emerald-700 mb-3" />
+              <span className="font-semibold text-stone-800">Specializations</span>
+              <span className="text-sm text-stone-500 text-center">Anxiety, Trauma & <br/>Relational Dynamics</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* --- Services Section --- */}
+      <section id="services" className="py-20 bg-stone-50">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h3 className="text-3xl font-bold text-stone-900 mb-4">Practice Streams</h3>
+            <p className="text-stone-600 max-w-2xl mx-auto">Providing structured, goal-oriented support tailored to clinical needs or professional development.</p>
+          </div>
+          
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* Service 1 */}
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-200 hover:shadow-md transition-shadow">
+              <div className="w-14 h-14 bg-emerald-100 rounded-xl flex items-center justify-center mb-6">
+                <ShieldCheck className="w-7 h-7 text-emerald-800" />
+              </div>
+              <h4 className="text-2xl font-bold text-stone-900 mb-3">Individual Psychotherapy</h4>
+              <p className="text-stone-600 leading-relaxed mb-6">
+                Deep, exploratory work focused on alleviating distress, processing trauma, and breaking chronic patterns. Utilizing CBT and DBT frameworks to establish emotional regulation and resilience.
+              </p>
+              <ul className="space-y-2 text-sm text-stone-700 font-medium">
+                <li className="flex items-center"><Check className="w-4 h-4 text-emerald-600 mr-2" /> Anxiety & Depressive Disorders</li>
+                <li className="flex items-center"><Check className="w-4 h-4 text-emerald-600 mr-2" /> Trauma & PTSD Processing</li>
+                <li className="flex items-center"><Check className="w-4 h-4 text-emerald-600 mr-2" /> Emotion Regulation & Coping</li>
+              </ul>
+            </div>
+
+            {/* Service 2 */}
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-200 hover:shadow-md transition-shadow">
+              <div className="w-14 h-14 bg-stone-100 rounded-xl flex items-center justify-center mb-6">
+                <Filter className="w-7 h-7 text-stone-800" />
+              </div>
+              <h4 className="text-2xl font-bold text-stone-900 mb-3">Life & Professional Coaching</h4>
+              <p className="text-stone-600 leading-relaxed mb-6">
+                Action-oriented sessions designed for individuals seeking to navigate life transitions, manage professional burnout, and optimize interpersonal effectiveness in the workplace.
+              </p>
+              <ul className="space-y-2 text-sm text-stone-700 font-medium">
+                <li className="flex items-center"><Check className="w-4 h-4 text-stone-600 mr-2" /> Career Transitions & Burnout</li>
+                <li className="flex items-center"><Check className="w-4 h-4 text-stone-600 mr-2" /> Interpersonal Skills Development</li>
+                <li className="flex items-center"><Check className="w-4 h-4 text-stone-600 mr-2" /> Goal Setting & Accountability</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* --- Booking Section --- */}
+      <section id="booking" className="py-20 bg-emerald-900 text-stone-100">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h3 className="text-3xl font-bold text-white mb-4">Request a Consultation</h3>
+            <p className="text-emerald-100/80">Select an available date and time to begin the intake process.</p>
+          </div>
+
+          {bookingSuccess ? (
+            <div className="bg-white text-stone-800 p-8 rounded-2xl shadow-2xl max-w-2xl mx-auto text-center">
+              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle className="w-8 h-8 text-emerald-600" />
+              </div>
+              <h4 className="text-2xl font-bold mb-2">Request Submitted</h4>
+              <p className="text-stone-600 mb-6">Your appointment request for <strong>{bookingSuccess.date}</strong> at <strong>{bookingSuccess.time}</strong> has been received.</p>
+              <div className="bg-stone-100 p-4 rounded-lg inline-block border border-stone-200 mb-6">
+                <p className="text-sm text-stone-500 uppercase tracking-wide font-semibold mb-1">Reference ID</p>
+                <p className="text-2xl font-mono font-bold text-stone-800">{bookingSuccess.refId}</p>
+              </div>
+              <p className="text-sm text-stone-500 mb-8">Please save this Reference ID to track your appointment status.</p>
+              <button 
+                onClick={() => setBookingSuccess(null)}
+                className="bg-emerald-800 text-white px-6 py-2 rounded-lg font-medium hover:bg-emerald-900"
+              >
+                Book Another Session
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white text-stone-800 rounded-2xl shadow-2xl flex flex-col lg:flex-row overflow-hidden border border-stone-200/20">
+              
+              {/* Left: Date Selection */}
+              <div className="lg:w-1/2 p-8 border-b lg:border-b-0 lg:border-r border-stone-200 bg-stone-50">
+                <h4 className="font-bold text-lg mb-6 flex items-center text-stone-800">
+                  <Calendar className="w-5 h-5 mr-2 text-emerald-700" /> Select a Date
+                </h4>
+                <div className="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                  {upcomingDays.map((date, i) => {
+                    const dateStr = date.toISOString().split('T')[0];
+                    const isSelected = selectedDate?.getTime() === date.getTime();
+                    
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => { setSelectedDate(date); setSelectedTime(null); }}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          isSelected 
+                            ? 'border-emerald-600 bg-emerald-50 shadow-sm ring-1 ring-emerald-600' 
+                            : 'border-stone-200 bg-white hover:border-emerald-300 hover:bg-stone-50'
+                        }`}
+                      >
+                        <div className={`font-semibold text-sm ${isSelected ? 'text-emerald-900' : 'text-stone-700'}`}>
+                          {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                        </div>
+                        <div className={`text-lg font-bold ${isSelected ? 'text-emerald-700' : 'text-stone-900'}`}>
+                          {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Right: Time & Form */}
+              <div className="lg:w-1/2 p-8">
+                {selectedDate ? (
+                  <form onSubmit={handleBookAppointment} className="space-y-6 flex flex-col h-full">
+                    <div>
+                      <h4 className="font-bold text-lg mb-4 flex items-center text-stone-800">
+                        <Clock className="w-5 h-5 mr-2 text-emerald-700" /> Select a Time
+                      </h4>
+                      <div className="grid grid-cols-3 gap-2">
+                        {timeSlots.map(time => {
+                          const dateStr = selectedDate.toISOString().split('T')[0];
+                          const isBooked = bookings.some(b => b.date === dateStr && b.time === time && b.status !== 'Cancelled');
+                          const isSelected = selectedTime === time;
+                          
+                          return (
+                            <button
+                              key={time}
+                              type="button"
+                              disabled={isBooked}
+                              onClick={() => setSelectedTime(time)}
+                              className={`py-2 px-1 text-sm rounded-lg border font-medium transition-all ${
+                                isBooked 
+                                  ? 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-60' 
+                                  : isSelected
+                                    ? 'bg-emerald-700 border-emerald-700 text-white shadow-sm'
+                                    : 'bg-white border-stone-300 text-stone-700 hover:border-emerald-500 hover:text-emerald-700'
+                              }`}
+                            >
+                              {time}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-stone-100 mt-auto">
+                      <div>
+                        <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">Full Name</label>
+                        <div className="relative">
+                          <User className="w-4 h-4 absolute left-3 top-3 text-stone-400" />
+                          <input 
+                            type="text" 
+                            required
+                            value={bookingForm.name}
+                            onChange={e => setBookingForm({...bookingForm, name: e.target.value})}
+                            className="w-full pl-9 pr-4 py-2 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-shadow" 
+                            placeholder="Jane Doe"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">Email Address</label>
+                        <div className="relative">
+                          <Mail className="w-4 h-4 absolute left-3 top-3 text-stone-400" />
+                          <input 
+                            type="email" 
+                            required
+                            value={bookingForm.email}
+                            onChange={e => setBookingForm({...bookingForm, email: e.target.value})}
+                            className="w-full pl-9 pr-4 py-2 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-shadow" 
+                            placeholder="jane@example.com"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <button 
+                      type="submit" 
+                      disabled={isSubmitting || !selectedTime}
+                      className="w-full bg-emerald-800 text-white font-bold py-3 rounded-lg hover:bg-emerald-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center mt-4 shadow-md"
+                    >
+                      {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Request'}
+                    </button>
+                  </form>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-stone-400 space-y-4">
+                    <CalendarCheck className="w-16 h-16 opacity-20" />
+                    <p className="text-center font-medium">Please select a date from the calendar<br/>to view available times.</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
+      </section>
+
+      {/* --- Tracking Section --- */}
+      <section id="tracking" className="py-20 bg-white border-b border-stone-200">
+        <div className="max-w-3xl mx-auto px-6 text-center">
+          <Search className="w-8 h-8 text-stone-400 mx-auto mb-4" />
+          <h3 className="text-2xl font-bold text-stone-900 mb-2">Track Your Appointment</h3>
+          <p className="text-stone-600 mb-8">Enter your email and Reference ID to check the status of your request.</p>
+
+          <form onSubmit={handleTrackAppointment} className="flex flex-col md:flex-row gap-4 justify-center">
+            <input 
+              type="email" 
+              required
+              value={trackEmail}
+              onChange={e => setTrackEmail(e.target.value)}
+              placeholder="Email Address" 
+              className="px-4 py-3 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none flex-1 max-w-xs"
+            />
+            <input 
+              type="text" 
+              required
+              value={trackRef}
+              onChange={e => setTrackRef(e.target.value)}
+              placeholder="Ref ID (e.g. LM-XXXXXX)" 
+              className="px-4 py-3 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none flex-1 max-w-xs uppercase"
+            />
+            <button type="submit" className="bg-stone-800 text-white px-6 py-3 rounded-lg font-semibold hover:bg-stone-900 transition-colors">
+              Lookup
+            </button>
+          </form>
+
+          {trackResult && (
+            <div className="mt-8 p-6 bg-stone-50 rounded-xl border border-stone-200 text-left max-w-md mx-auto shadow-sm">
+              {trackResult === 'not_found' ? (
+                <div className="text-red-700 flex items-center">
+                  <AlertCircle className="w-5 h-5 mr-2" />
+                  <span className="font-medium">No appointment found with those details.</span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <h5 className="font-bold text-stone-900 border-b border-stone-200 pb-2">Appointment Details</h5>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="text-stone-500 font-medium">Status:</div>
+                    <div className="font-bold">
+                      <span className={`px-2 py-1 rounded-md text-xs
+                        ${trackResult.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-800' : 
+                          trackResult.status === 'Cancelled' ? 'bg-red-100 text-red-800' : 
+                          'bg-amber-100 text-amber-800'}`}>
+                        {trackResult.status}
+                      </span>
+                    </div>
+                    <div className="text-stone-500 font-medium">Date:</div>
+                    <div className="text-stone-900 font-semibold">{trackResult.date}</div>
+                    <div className="text-stone-500 font-medium">Time:</div>
+                    <div className="text-stone-900 font-semibold">{trackResult.time}</div>
+                    <div className="text-stone-500 font-medium">Patient:</div>
+                    <div className="text-stone-900">{trackResult.name}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* --- Footer & Hidden Admin Trigger --- */}
+      <footer className="bg-stone-900 text-stone-400 py-12 mt-auto">
+        <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-2 gap-8 items-center">
+          <div>
+            <h4 className="text-white font-bold text-lg mb-2">Lakshmi Mupparthi</h4>
+            <p className="text-sm text-stone-500">M.A., R.P. (Qualifying)</p>
+            <div className="mt-4 space-y-2 text-sm">
+              <p className="flex items-center"><MapPin className="w-4 h-4 mr-2 opacity-70" /> CFIR St. Catharines / Toronto / Ottawa</p>
+              <p className="flex items-center"><Phone className="w-4 h-4 mr-2 opacity-70" /> Contact via CFIR intake</p>
+            </div>
+          </div>
+          <div className="md:text-right text-sm">
+            <p 
+              className="cursor-pointer select-none opacity-50 hover:opacity-100 transition-opacity"
+              onClick={handleFooterClick}
+            >
+              &copy; {new Date().getFullYear()} Clinical Practice Portal. All rights reserved.
+            </p>
+            <p className="mt-2 text-xs opacity-40">Built with React & Firebase.</p>
+          </div>
+        </div>
       </footer>
 
-      {!isChatOpen && (
-        <button onClick={() => setIsChatOpen(true)} className="fixed bottom-10 right-10 bg-emerald-900 text-white p-6 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:scale-110 active:scale-95 transition-all z-40 border-4 border-white">
-          <MessageSquare size={28} />
-        </button>
+      {/* Admin Login Modal */}
+      {showAdminLogin && (
+        <div className="fixed inset-0 bg-stone-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full relative">
+            <button 
+              onClick={() => { setShowAdminLogin(false); setFooterClickCount(0); }}
+              className="absolute top-4 right-4 text-stone-400 hover:text-stone-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <ShieldCheck className="w-12 h-12 text-emerald-800 mx-auto mb-4" />
+            <h3 className="text-xl font-bold text-center text-stone-900 mb-6">Admin Authorization</h3>
+            <form onSubmit={handleAdminLogin}>
+              <input 
+                type="password" 
+                autoFocus
+                value={adminPasswordInput}
+                onChange={(e) => setAdminPasswordInput(e.target.value)}
+                placeholder="Enter Authorization Code"
+                className="w-full px-4 py-3 bg-stone-50 border border-stone-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none mb-4 text-center tracking-widest"
+              />
+              <button 
+                type="submit"
+                className="w-full bg-stone-900 text-white font-bold py-3 rounded-lg hover:bg-stone-800 transition-colors shadow-md"
+              >
+                Access Dashboard
+              </button>
+            </form>
+          </div>
+        </div>
       )}
+
+      {/* CSS overrides for scrollbar inside the component to keep it single-file */}
+      <style dangerouslySetInnerHTML={{__html: `
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f5f5f4; 
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #d6d3d1; 
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #a8a29e; 
+        }
+      `}} />
     </div>
   );
 }
